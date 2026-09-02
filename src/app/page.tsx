@@ -50,7 +50,7 @@ export default function OverviewPage() {
             <DollarSign className="h-4 w-4 text-cyan-400" />
           </div>
           <div className="text-3xl font-extrabold font-mono text-white mt-2">
-            ${(stats?.totalVolume24hUsd ?? 0).toLocaleString()}
+            ${(stats?.totalVolume24hUsd ?? 0).toLocaleString('en-US')}
           </div>
           <div className="text-[11px] text-slate-400 font-mono mt-1">
             Binance Live & Testnet
@@ -63,7 +63,7 @@ export default function OverviewPage() {
             <Layers className="h-4 w-4 text-amber-400" />
           </div>
           <div className="text-3xl font-extrabold font-mono text-amber-400 mt-2">
-            ${(stats?.pendingSweepUsd ?? 0).toLocaleString()}
+            ${(stats?.pendingSweepUsd ?? 0).toLocaleString('en-US')}
           </div>
           <div className="text-[11px] text-slate-400 font-mono mt-1">
             Pending multi-sig cold sweep

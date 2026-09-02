@@ -15,8 +15,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
-      <body className="min-h-screen bg-[#070A12] text-[#F8FAFC] antialiased flex">
+    <html lang="en" className="dark" suppressHydrationWarning>
+      <body className="min-h-screen bg-[#070A12] text-[#F8FAFC] antialiased flex" suppressHydrationWarning>
         <AdminSidebar />
         <div className="flex-1 flex flex-col min-w-0">
           <AdminHeader />

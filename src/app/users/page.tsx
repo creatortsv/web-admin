@@ -100,7 +100,7 @@ export default function UsersPage() {
                   </span>
                 </td>
                 <td className="py-3.5 px-4 text-slate-300">{u.activeBotsCount} active</td>
-                <td className="py-3.5 px-4 text-slate-300">${u.totalVolumeUsd.toLocaleString()}</td>
+                <td className="py-3.5 px-4 text-slate-300">${u.totalVolumeUsd.toLocaleString('en-US')}</td>
                 <td className="py-3.5 px-4 text-right space-x-2">
                   {u.status === 'ACTIVE' ? (
                     <button
