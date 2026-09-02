@@ -6,13 +6,95 @@
   --background: #070A12;
   --foreground: #F8FAFC;
   --card: #0D1322;
-  --border: #1E293B;
-  --primary: #EF4444;
+  --card-elevated: #111827;
+  --card-glass: rgba(13, 19, 34, 0.75);
+  --border: rgba(51, 65, 85, 0.45);
+  --border-subtle: rgba(30, 41, 59, 0.6);
+  --admin: #EF4444;
+  --admin-subtle: rgba(239, 68, 68, 0.12);
+  --primary: #00F59B;
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
-body {
-  color: var(--foreground);
-  background-color: var(--background);
-  font-feature-settings: "rlig" 1, "calt" 1;
-  overflow-x: hidden;
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    color-scheme: dark;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    color: var(--foreground);
+    background-color: var(--background);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11", "rlig" 1, "calt" 1;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--admin);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+}
+
+/* Custom Cockpit Scrollbars */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: #070A12;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(51, 65, 85, 0.6);
+  border-radius: 9999px;
+  border: 1px solid #070A12;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(239, 68, 68, 0.5);
+}
+
+/* Glassmorphism & Elevation */
+.glass-panel {
+  background: rgba(13, 19, 34, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass-card {
+  background: linear-gradient(145deg, rgba(17, 24, 39, 0.75) 0%, rgba(13, 19, 34, 0.85) 100%);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+}
+
+.glass-card-hover {
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.glass-card-hover:hover {
+  border-color: rgba(239, 68, 68, 0.35);
+  box-shadow: 0 16px 36px -10px rgba(0, 0, 0, 0.6), 0 0 24px -6px rgba(239, 68, 68, 0.2);
+  transform: translateY(-1px);
+}
+
+/* Red alert glow */
+.glow-admin {
+  box-shadow: 0 0 25px -4px rgba(239, 68, 68, 0.3);
+}
+
+.glow-emerald {
+  box-shadow: 0 0 25px -4px rgba(0, 245, 155, 0.25);
 }

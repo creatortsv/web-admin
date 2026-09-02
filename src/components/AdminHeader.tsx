@@ -17,15 +17,15 @@ export const AdminHeader: React.FC = () => {
   };
 
   return (
-    <header className="h-14 bg-[#070A12]/90 backdrop-blur border-b border-[#1E293B] px-6 flex items-center justify-between sticky top-0 z-40">
+    <header className="h-16 bg-[#070A12]/95 backdrop-blur-md border-b border-slate-800/80 px-6 sm:px-8 flex items-center justify-between sticky top-0 z-20">
       {/* Security Status Pills */}
       <div className="flex items-center gap-3 text-xs font-mono">
-        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-emerald-950/30 border border-emerald-500/30 text-emerald-300">
-          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
-          <span>mTLS Istio PeerAuth Active</span>
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-950/40 border border-emerald-500/35 text-emerald-300 shadow-[0_0_12px_rgba(0,245,155,0.15)]">
+          <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+          <span className="font-semibold">mTLS Istio PeerAuth Active</span>
         </div>
-        <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded bg-slate-900 border border-[#1E293B] text-slate-300">
-          <Lock className="h-3.5 w-3.5 text-rose-400" />
+        <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/80 border border-slate-800 text-slate-300">
+          <Lock className="h-4 w-4 text-rose-400" />
           <span>TOTP Step-Up Challenged</span>
         </div>
       </div>
@@ -35,9 +35,9 @@ export const AdminHeader: React.FC = () => {
         type="button"
         onClick={handleEmergencyHalt}
         disabled={isHalting}
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-950/40 border border-rose-500/50 hover:bg-rose-900/60 text-rose-300 text-xs font-bold font-mono transition-colors cursor-pointer"
+        className="flex items-center gap-2 px-4 py-2 rounded-xl bg-rose-950/50 border border-rose-500/60 hover:bg-rose-900/70 text-rose-200 text-xs font-bold font-mono transition-all shadow-[0_0_20px_rgba(239,68,68,0.25)] hover:shadow-[0_0_25px_rgba(239,68,68,0.4)] cursor-pointer"
       >
-        <AlertOctagon className="h-4 w-4 text-rose-400" />
+        <AlertOctagon className="h-4 w-4 text-rose-400 animate-pulse" />
         {isHalting ? 'BROADCASTING HALT...' : 'EMERGENCY FLEET HALT'}
       </button>
     </header>
