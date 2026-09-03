@@ -236,7 +236,7 @@ export const useAiQuantStore = create<AiQuantState>((set, get) => ({
     const current = get().targetPairs;
     const exists = current.includes(pair);
     const updated = exists ? current.filter((p) => p !== pair) : [...current, pair];
-    if (updated.length === 0) return; // Keep at least one pair
+    if (updated.length === 0) return;
     set({ targetPairs: updated });
     persistSettings({ targetPairs: updated });
   },
@@ -253,104 +253,120 @@ export const useAiQuantStore = create<AiQuantState>((set, get) => ({
     set({
       isRunning: true,
       progressPercent: 5,
-      statusMessage: 'Initializing AI quantitative pipeline...',
+      statusMessage: 'Initializing ReAct MCP Agent Harness...',
       executionLogs: [
-        `[${new Date().toISOString()}] Initializing AI Synthesis Engine (Provider: ${state.provider.toUpperCase()})`,
+        `[${new Date().toISOString()}] Initializing Autonomous ReAct Quant Agent Harness (Provider: ${state.provider.toUpperCase()})`,
         `[${new Date().toISOString()}] Target Constraints: Min APR >= ${state.minTargetApr}%, Max DD <= ${state.maxDrawdown}%`,
         `[${new Date().toISOString()}] Lookback Window: ${state.lookbackDays} Days, Risk Profile: ${state.riskProfile}`,
         `[${new Date().toISOString()}] Target Asset Pairs: ${state.targetPairs.join(', ')}`,
       ],
     });
 
-    const activeModel = state.selectedModel === 'custom' ? (state.customModel || 'custom-model') : state.selectedModel;
+    try {
+      // Connect to the real SSE streaming endpoint
+      const response = await fetch('/api/quant/synthesize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: state.provider,
+          apiKey: state.apiKey,
+          selectedModel: state.selectedModel,
+          customModel: state.customModel,
+          targetPairs: state.targetPairs,
+          minTargetApr: state.minTargetApr,
+          maxDrawdown: state.maxDrawdown,
+          lookbackDays: state.lookbackDays,
+          riskProfile: state.riskProfile,
+          systemPrompt: state.systemPrompt,
+        }),
+      });
 
-    // Simulation steps
-    await new Promise((r) => setTimeout(r, 600));
-    set((s) => ({
-      progressPercent: 25,
-      statusMessage: `Connecting to OpenRouter API (Model: ${activeModel})...`,
-      executionLogs: [
-        ...s.executionLogs,
-        `[${new Date().toISOString()}] Authenticating with OpenRouter (${state.apiKey ? 'API Key verified' : 'Using platform demo quota'})...`,
-        `[${new Date().toISOString()}] Fetching historical OHLCV multi-exchange klines for ${state.targetPairs.join(', ')}...`,
-      ],
-    }));
+      if (!response.ok || !response.body) {
+        throw new Error(`Failed to initialize harness: ${response.statusText}`);
+      }
 
-    await new Promise((r) => setTimeout(r, 900));
-    set((s) => ({
-      progressPercent: 55,
-      statusMessage: 'Running Bayesian volatility clustering & Markov regime detection...',
-      executionLogs: [
-        ...s.executionLogs,
-        `[${new Date().toISOString()}] Computing Average True Range (ATR) & Hurst exponents across 1h, 4h, and 1d candles...`,
-        `[${new Date().toISOString()}] Simulating 5,000 Monte Carlo paths per pair against Max Drawdown ceiling (${state.maxDrawdown}%)...`,
-      ],
-    }));
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
 
-    await new Promise((r) => setTimeout(r, 1000));
-    set((s) => ({
-      progressPercent: 85,
-      statusMessage: 'Generating optimal grid bounds & mathematical profit distributions...',
-      executionLogs: [
-        ...s.executionLogs,
-        `[${new Date().toISOString()}] Optimization converged. Generated 3 optimal parameter candidates satisfying constraints.`,
-        `[${new Date().toISOString()}] Compiling Sharpe & Sortino ratios with maker-fee deduction...`,
-      ],
-    }));
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-    await new Promise((r) => setTimeout(r, 700));
-    const nowIso = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+        buffer += decoder.decode(value, { stream: true });
+        const blocks = buffer.split('\n\n');
+        buffer = blocks.pop() || '';
 
-    // Formulate fresh generated strategies based on user constraints
-    const newStrategies: SynthesizedStrategy[] = [
-      {
-        id: `strat_${Date.now()}_1`,
-        name: `${state.targetPairs[0] || 'BTC/USDT'} Grid Alpha (${activeModel.split('/')[1] || activeModel})`,
-        pair: state.targetPairs[0] || 'BTC/USDT',
-        strategyType: 'SPOT_GRID',
-        targetApr: Number((state.minTargetApr * (1 + Math.random() * 0.25)).toFixed(1)),
-        maxDrawdown: Number((state.maxDrawdown * (0.65 + Math.random() * 0.3)).toFixed(1)),
-        gridCount: Math.min(60, Math.max(16, Math.round(state.minTargetApr * 0.7))),
-        spacingType: 'GEOMETRIC',
-        priceRange: { lower: 84200, upper: 99400 },
-        sharpeRatio: Number((2.4 + Math.random() * 0.8).toFixed(2)),
-        rationale: `Synthesized via ${activeModel}. Calibrated with strict ${state.maxDrawdown}% max drawdown boundary. Geometric density maximizes grid turnover.`,
-        isPublished: true,
-        createdAt: nowIso,
-      },
-      {
-        id: `strat_${Date.now()}_2`,
-        name: `${state.targetPairs[1] || 'ETH/USDT'} Dynamic Infinity (${activeModel.split('/')[1] || activeModel})`,
-        pair: state.targetPairs[1] || 'ETH/USDT',
-        strategyType: 'INFINITY_GRID',
-        targetApr: Number((state.minTargetApr * 1.35).toFixed(1)),
-        maxDrawdown: Number((state.maxDrawdown * 0.9).toFixed(1)),
-        gridCount: 50,
-        spacingType: 'ARITHMETIC',
-        priceRange: { lower: 2600, upper: 4400 },
-        sharpeRatio: Number((2.7 + Math.random() * 0.7).toFixed(2)),
-        rationale: `Asymmetric upside capture with automatic capital replenishment. Risk tolerance: ${state.riskProfile}.`,
-        isPublished: true,
-        createdAt: nowIso,
-      },
-    ];
+        for (const block of blocks) {
+          if (!block.startsWith('data: ')) continue;
+          try {
+            const payload = JSON.parse(block.slice(6));
+            if (payload.log) {
+              set((s) => ({
+                progressPercent: payload.progressPercent ?? s.progressPercent,
+                statusMessage: payload.log,
+                executionLogs: [...s.executionLogs, payload.log],
+              }));
+            }
+            if (payload.presets && Array.isArray(payload.presets) && payload.presets.length > 0) {
+              const nowIso = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+              set((s) => ({
+                isRunning: false,
+                progressPercent: 100,
+                statusMessage: 'Synthesis complete. Strategies verified and stored.',
+                lastRunAt: nowIso,
+                generatedStrategies: [...payload.presets, ...s.generatedStrategies.slice(0, 4)],
+              }));
+              persistSettings({
+                lastRunAt: nowIso,
+                generatedStrategies: get().generatedStrategies,
+              });
+            }
+          } catch {
+            // Ignore parse errors on partial chunks
+          }
+        }
+      }
+    } catch {
+      // Fallback: Direct local execution if fetch/network fails
+      const { QuantAgentHarness } = await import('@/services/quant/harness/quantAgentHarness');
+      const harness = new QuantAgentHarness();
+      const presets = await harness.run({
+        provider: state.provider,
+        apiKey: state.apiKey,
+        selectedModel: state.selectedModel,
+        customModel: state.customModel,
+        targetPairs: state.targetPairs,
+        minTargetApr: state.minTargetApr,
+        maxDrawdown: state.maxDrawdown,
+        lookbackDays: state.lookbackDays,
+        riskProfile: state.riskProfile,
+        systemPrompt: state.systemPrompt,
+        onProgress: (chunk) => {
+          set((s) => ({
+            progressPercent: chunk.progressPercent,
+            statusMessage: chunk.log,
+            executionLogs: [...s.executionLogs, chunk.log],
+          }));
+        },
+      });
 
-    set((s) => ({
-      isRunning: false,
-      progressPercent: 100,
-      statusMessage: 'Synthesis complete. Strategies compiled and published to Bot Catalog.',
-      lastRunAt: nowIso,
-      executionLogs: [
-        ...s.executionLogs,
-        `[${new Date().toISOString()}] SUCCESS: Synthesis complete. 2 new strategy presets stored and ready for trader deployment.`,
-      ],
-      generatedStrategies: [...newStrategies, ...s.generatedStrategies.slice(0, 4)],
-    }));
+      const nowIso = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+      set((s) => ({
+        isRunning: false,
+        progressPercent: 100,
+        statusMessage: 'Synthesis complete. Strategies verified and stored.',
+        lastRunAt: nowIso,
+        generatedStrategies: [...presets, ...s.generatedStrategies.slice(0, 4)],
+      }));
 
-    persistSettings({
-      lastRunAt: nowIso,
-      generatedStrategies: get().generatedStrategies,
-    });
+      persistSettings({
+        lastRunAt: nowIso,
+        generatedStrategies: get().generatedStrategies,
+      });
+    } finally {
+      set({ isRunning: false });
+    }
   },
 
   publishToCatalog: (id) => {
