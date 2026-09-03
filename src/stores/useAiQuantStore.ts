@@ -327,42 +327,12 @@ export const useAiQuantStore = create<AiQuantState>((set, get) => ({
           }
         }
       }
-    } catch {
-      // Fallback: Direct local execution if fetch/network fails
-      const { QuantAgentHarness } = await import('@/services/quant/harness/quantAgentHarness');
-      const harness = new QuantAgentHarness();
-      const presets = await harness.run({
-        provider: state.provider,
-        apiKey: state.apiKey,
-        selectedModel: state.selectedModel,
-        customModel: state.customModel,
-        targetPairs: state.targetPairs,
-        minTargetApr: state.minTargetApr,
-        maxDrawdown: state.maxDrawdown,
-        lookbackDays: state.lookbackDays,
-        riskProfile: state.riskProfile,
-        systemPrompt: state.systemPrompt,
-        onProgress: (chunk) => {
-          set((s) => ({
-            progressPercent: chunk.progressPercent,
-            statusMessage: chunk.log,
-            executionLogs: [...s.executionLogs, chunk.log],
-          }));
-        },
-      });
-
-      const nowIso = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
-      set((s) => ({
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      set({
         isRunning: false,
-        progressPercent: 100,
-        statusMessage: 'Synthesis complete. Strategies verified and stored.',
-        lastRunAt: nowIso,
-        generatedStrategies: [...presets, ...s.generatedStrategies.slice(0, 4)],
-      }));
-
-      persistSettings({
-        lastRunAt: nowIso,
-        generatedStrategies: get().generatedStrategies,
+        statusMessage: `Synthesis failed: ${message}. Ensure svc-mcp-quant is running on :8085.`,
+        executionLogs: [...get().executionLogs, `[ERROR] Failed to reach svc-mcp-quant: ${message}`],
       });
     } finally {
       set({ isRunning: false });

@@ -1,71 +1,42 @@
-import { NextRequest } from 'next/server';
-import { QuantAgentHarness, TelemetryChunk } from '@/services/quant/harness/quantAgentHarness';
+import { NextRequest, NextResponse } from 'next/server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+const MCP_QUANT_URL = process.env.MCP_QUANT_URL || 'http://127.0.0.1:8085';
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
 
-    const harness = new QuantAgentHarness();
-    const encoder = new TextEncoder();
-
-    const stream = new ReadableStream({
-      async start(controller) {
-        try {
-          const presets = await harness.run({
-            provider: body.provider || 'openrouter',
-            apiKey: body.apiKey || '',
-            selectedModel: body.selectedModel || 'anthropic/claude-3.5-sonnet',
-            customModel: body.customModel || '',
-            targetPairs: body.targetPairs || ['BTC/USDT', 'ETH/USDT'],
-            minTargetApr: Number(body.minTargetApr) || 45,
-            maxDrawdown: Number(body.maxDrawdown) || 8.5,
-            lookbackDays: Number(body.lookbackDays) || 90,
-            riskProfile: body.riskProfile || 'BALANCED',
-            systemPrompt: body.systemPrompt,
-            onProgress: (chunk: TelemetryChunk) => {
-              const data = `data: ${JSON.stringify(chunk)}\n\n`;
-              controller.enqueue(encoder.encode(data));
-            },
-          });
-
-          // Final payload with compiled presets
-          const finalEvent = `data: ${JSON.stringify({
-            stage: 'PRESETS',
-            progressPercent: 100,
-            log: 'All strategy presets successfully verified and ready.',
-            presets,
-          })}\n\n`;
-          controller.enqueue(encoder.encode(finalEvent));
-
-          controller.close();
-        } catch (err: unknown) {
-          const errorMsg = err instanceof Error ? err.message : String(err);
-          const errorData = `data: ${JSON.stringify({
-            stage: 'COMPLETED',
-            progressPercent: 100,
-            log: `[ERROR] Harness execution failed: ${errorMsg}`,
-          })}\n\n`;
-          controller.enqueue(encoder.encode(errorData));
-          controller.close();
-        }
+    const mcpRes = await fetch(`${MCP_QUANT_URL}/api/quant/synthesize`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
       },
+      body: JSON.stringify(body),
     });
 
-    return new Response(stream, {
+    if (!mcpRes.ok || !mcpRes.body) {
+      const errorText = await mcpRes.text().catch(() => 'Unknown error');
+      return NextResponse.json(
+        { error: `svc-mcp-quant error (${mcpRes.status}): ${errorText}` },
+        { status: mcpRes.status || 502 }
+      );
+    }
+
+    return new Response(mcpRes.body, {
       headers: {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache, no-transform',
-        'Connection': 'keep-alive',
+        Connection: 'keep-alive',
       },
     });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Invalid request';
-    return new Response(JSON.stringify({ error: msg }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    const message = err instanceof Error ? err.message : String(err);
+    return NextResponse.json(
+      { error: `Failed to connect to svc-mcp-quant: ${message}` },
+      { status: 502 }
+    );
   }
 }
