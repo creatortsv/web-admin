@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Script from 'next/script';
 import { Inter, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
 import { AdminSidebar } from '@/components/AdminSidebar';
@@ -59,16 +60,15 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`dark ${inter.variable} ${jetbrainsMono.variable}`} suppressHydrationWarning>
-      <head>
-        <script
-          id="extension-error-suppressor"
-          dangerouslySetInnerHTML={{ __html: extensionErrorSuppressor }}
-        />
-      </head>
       <body
         className="min-h-screen bg-[#070A12] text-slate-100 font-sans antialiased flex selection:bg-rose-500/20 selection:text-rose-300"
         suppressHydrationWarning
       >
+        <Script
+          id="extension-error-suppressor"
+          strategy="beforeInteractive"
+          dangerouslySetInnerHTML={{ __html: extensionErrorSuppressor }}
+        />
         <AdminSidebar />
         <div className="flex-1 flex flex-col min-w-0">
           <AdminHeader />
