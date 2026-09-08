@@ -106,6 +106,35 @@ export interface SystemStats {
   redisMemoryMb: number;
 }
 
+/**
+ * Generates a W3C traceparent header: 00-{trace_id}-{span_id}-01
+ */
+export function generateTraceparent(): string {
+  const bytes = new Uint8Array(24);
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    crypto.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < 24; i++) {
+      bytes[i] = Math.floor(Math.random() * 256);
+    }
+  }
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  const traceId = hex.slice(0, 32);
+  const spanId = hex.slice(32, 48);
+  return `00-${traceId}-${spanId}-01`;
+}
+
+export async function adminFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const headers = new Headers(init?.headers);
+  if (!headers.has('traceparent')) {
+    headers.set('traceparent', generateTraceparent());
+  }
+  return fetch(input, {
+    ...init,
+    headers,
+  });
+}
+
 // Initial Mock Datasets for standalone back-office operation with real persistence in localStorage
 export const INITIAL_VAULTS: TreasuryVault[] = [
   {
@@ -295,7 +324,7 @@ export const adminApi = {
 
   listUniversalGateways: async (): Promise<UniversalGateway[]> => {
     try {
-      const res = await fetch('/v1/billing/gateways');
+      const res = await adminFetch('/v1/billing/gateways');
       if (res.ok) {
         const data = await res.json();
         if (data.gateways) return data.gateways;
@@ -339,7 +368,7 @@ export const adminApi = {
     environment = 'TEST'
   ): Promise<UniversalGatewayConfig> => {
     try {
-      const res = await fetch(
+      const res = await adminFetch(
         `/v1/billing/gateways/${encodeURIComponent(gatewayName)}/config?environment=${encodeURIComponent(
           environment
         )}`
@@ -382,7 +411,7 @@ export const adminApi = {
     req: UpdateGatewayConfigRequest
   ): Promise<{ config: UniversalGatewayConfig; message: string }> => {
     try {
-      const res = await fetch(
+      const res = await adminFetch(
         `/v1/billing/gateways/${encodeURIComponent(req.gatewayName)}/config`,
         {
           method: 'PUT',
@@ -435,7 +464,7 @@ export const adminApi = {
     secretKey = ''
   ): Promise<TestConnectionResponse> => {
     try {
-      const res = await fetch(
+      const res = await adminFetch(
         `/v1/billing/gateways/${encodeURIComponent(gatewayName)}/test`,
         {
           method: 'POST',
