@@ -14,6 +14,8 @@ import {
   ShieldCheck,
   LogOut,
   Zap,
+  GitCompare,
+  Scale,
 } from 'lucide-react';
 import { useAdminAuthStore } from '@/stores/useAdminAuthStore';
 
@@ -23,6 +25,8 @@ const NAV_ITEMS = [
   { href: '/payments', label: 'Payment Gateways', icon: CreditCard },
   { href: '/users', label: 'User Moderation', icon: Users },
   { href: '/bots', label: 'Fleet Supervisor', icon: Bot },
+  { href: '/orders/divergent', label: 'Divergent Orders', icon: GitCompare },
+  { href: '/billing/compensations', label: 'Compensations', icon: Scale },
   { href: '/ai-quant', label: 'AI Quant Engine', icon: BrainCircuit },
   { href: '/audit-logs', label: 'Audit Trail', icon: FileCode2 },
 ];
