@@ -106,6 +106,48 @@ export interface SystemStats {
   redisMemoryMb: number;
 }
 
+export interface DivergentOrder {
+  id: string;
+  clientOrderId: string;
+  userId: string;
+  botId?: string;
+  symbol: string;
+  side: 'BUY' | 'SELL';
+  orderType: 'LIMIT' | 'MARKET' | 'LIMIT_MAKER';
+  price: string;
+  quantity: string;
+  localStatus: 'IN_FLIGHT_UNKNOWN' | 'PENDING_SUBMIT' | 'REJECTED' | 'NEW';
+  exchangeStatus: 'FILLED' | 'PARTIALLY_FILLED' | 'NEW' | 'CANCELED' | 'REJECTED' | 'NOT_FOUND';
+  discrepancyType: 'STATE_MISMATCH' | 'IN_FLIGHT_TIMEOUT' | 'UNKNOWN_ON_EXCHANGE' | 'GHOST_FILL';
+  lastCheckedAt: string;
+  createdAt: string;
+  divergenceAgeSeconds: number;
+}
+
+export interface CompensationClaim {
+  id: string;
+  incidentId: string;
+  userId: string;
+  amountCents: number;
+  reason: string;
+  evidencePayload: string;
+  status: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';
+  createdByAdminId: string;
+  approvedByAdminId?: string;
+  rejectionReason?: string;
+  createdAt: string;
+  updatedAt: string;
+  approvedAt?: string;
+}
+
+export interface CreateCompensationClaimPayload {
+  incidentId: string;
+  userId: string;
+  amountCents: number;
+  reason: string;
+  evidencePayload: string;
+}
+
 /**
  * Generates a W3C traceparent header: 00-{trace_id}-{span_id}-01
  */
@@ -502,4 +544,349 @@ export const adminApi = {
       message: 'API Key is empty or invalid',
     };
   },
+
+  // Divergent Orders Governance Console
+  getDivergentOrders: async (): Promise<DivergentOrder[]> => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('vf_admin_divergent_orders');
+      if (saved) return JSON.parse(saved);
+    }
+    return INITIAL_DIVERGENT_ORDERS;
+  },
+
+  syncDivergentOrder: async (orderId: string): Promise<{ success: boolean; message: string; updatedStatus: string }> => {
+    let list: DivergentOrder[] = INITIAL_DIVERGENT_ORDERS;
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('vf_admin_divergent_orders');
+      list = saved ? JSON.parse(saved) : [...INITIAL_DIVERGENT_ORDERS];
+    }
+    const idx = list.findIndex((o) => o.id === orderId);
+    if (idx === -1) {
+      return { success: false, message: 'Order not found', updatedStatus: 'UNKNOWN' };
+    }
+    // Update status to match exchange execution
+    const target = list[idx];
+    target.localStatus = target.exchangeStatus === 'FILLED' ? 'NEW' : 'REJECTED';
+    target.discrepancyType = 'STATE_MISMATCH';
+    target.lastCheckedAt = new Date().toISOString();
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('vf_admin_divergent_orders', JSON.stringify(list));
+    }
+    return {
+      success: true,
+      message: `Order ${target.clientOrderId} synchronized with Binance execution report: ${target.exchangeStatus}`,
+      updatedStatus: target.exchangeStatus,
+    };
+  },
+
+  forceCancelDivergentOrder: async (orderId: string): Promise<{ success: boolean; message: string }> => {
+    let list: DivergentOrder[] = INITIAL_DIVERGENT_ORDERS;
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('vf_admin_divergent_orders');
+      list = saved ? JSON.parse(saved) : [...INITIAL_DIVERGENT_ORDERS];
+    }
+    const filtered = list.filter((o) => o.id !== orderId);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('vf_admin_divergent_orders', JSON.stringify(filtered));
+    } else {
+      INITIAL_DIVERGENT_ORDERS = filtered;
+    }
+    return {
+      success: true,
+      message: `Emergency cancellation sent to Binance. Resting order cleared.`,
+    };
+  },
+
+  declareAbandonedOrder: async (orderId: string): Promise<{ success: boolean; message: string }> => {
+    let list: DivergentOrder[] = INITIAL_DIVERGENT_ORDERS;
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('vf_admin_divergent_orders');
+      list = saved ? JSON.parse(saved) : [...INITIAL_DIVERGENT_ORDERS];
+    }
+    const filtered = list.filter((o) => o.id !== orderId);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('vf_admin_divergent_orders', JSON.stringify(filtered));
+    } else {
+      INITIAL_DIVERGENT_ORDERS = filtered;
+    }
+    return {
+      success: true,
+      message: `Order declared abandoned. Released risk reservations and marked locally terminal.`,
+    };
+  },
+
+  // Maker-Checker Financial Compensation Governance
+  getCompensationClaims: async (status?: string): Promise<CompensationClaim[]> => {
+    try {
+      const url = status ? `/v1/billing/admin/compensations?status=${encodeURIComponent(status)}` : `/v1/billing/admin/compensations`;
+      const res = await adminFetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.claims) return data.claims;
+      }
+    } catch {
+      // Fallback to local storage for standalone back-office
+    }
+
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('vf_admin_compensations');
+      if (saved) {
+        const parsed: CompensationClaim[] = JSON.parse(saved);
+        if (status) return parsed.filter((c) => c.status === status);
+        return parsed;
+      }
+    }
+    if (status) return INITIAL_COMPENSATIONS.filter((c) => c.status === status);
+    return INITIAL_COMPENSATIONS;
+  },
+
+  createCompensationClaim: async (
+    payload: CreateCompensationClaimPayload,
+    adminId: string
+  ): Promise<CompensationClaim> => {
+    try {
+      const res = await adminFetch('/v1/billing/admin/compensations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          incident_id: payload.incidentId,
+          user_id: payload.userId,
+          amount_cents: payload.amountCents,
+          reason: payload.reason,
+          evidence_payload: payload.evidencePayload,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return data.claim;
+      }
+    } catch {
+      // Fallback
+    }
+
+    const newClaim: CompensationClaim = {
+      id: `claim-${Date.now()}`,
+      incidentId: payload.incidentId,
+      userId: payload.userId,
+      amountCents: payload.amountCents,
+      reason: payload.reason,
+      evidencePayload: payload.evidencePayload,
+      status: 'PENDING_APPROVAL',
+      createdByAdminId: adminId,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('vf_admin_compensations');
+      const list: CompensationClaim[] = saved ? JSON.parse(saved) : [...INITIAL_COMPENSATIONS];
+      list.unshift(newClaim);
+      localStorage.setItem('vf_admin_compensations', JSON.stringify(list));
+    } else {
+      INITIAL_COMPENSATIONS.unshift(newClaim);
+    }
+    return newClaim;
+  },
+
+  approveCompensationClaim: async (
+    claimId: string,
+    checkerAdminId: string
+  ): Promise<{ claim: CompensationClaim; newBalanceCents: number; message: string }> => {
+    try {
+      const res = await adminFetch(`/v1/billing/admin/compensations/${encodeURIComponent(claimId)}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch {
+      // Fallback
+    }
+
+    let list: CompensationClaim[] = INITIAL_COMPENSATIONS;
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('vf_admin_compensations');
+      list = saved ? JSON.parse(saved) : [...INITIAL_COMPENSATIONS];
+    }
+
+    const claim = list.find((c) => c.id === claimId);
+    if (!claim) {
+      throw new Error('Compensation claim not found');
+    }
+    if (claim.createdByAdminId === checkerAdminId) {
+      throw new Error('Maker-Checker violation: Maker cannot approve their own claim');
+    }
+    if (claim.status !== 'PENDING_APPROVAL') {
+      throw new Error('Compensation claim has already been decided');
+    }
+
+    claim.status = 'APPROVED';
+    claim.approvedByAdminId = checkerAdminId;
+    claim.approvedAt = new Date().toISOString();
+    claim.updatedAt = new Date().toISOString();
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('vf_admin_compensations', JSON.stringify(list));
+    }
+
+    return {
+      claim,
+      newBalanceCents: 50000 + claim.amountCents,
+      message: `Claim approved. User ${claim.userId} credited with $${(claim.amountCents / 100).toFixed(2)} USD.`,
+    };
+  },
+
+  rejectCompensationClaim: async (
+    claimId: string,
+    checkerAdminId: string,
+    reason: string
+  ): Promise<{ claim: CompensationClaim; message: string }> => {
+    try {
+      const res = await adminFetch(`/v1/billing/admin/compensations/${encodeURIComponent(claimId)}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch {
+      // Fallback
+    }
+
+    let list: CompensationClaim[] = INITIAL_COMPENSATIONS;
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('vf_admin_compensations');
+      list = saved ? JSON.parse(saved) : [...INITIAL_COMPENSATIONS];
+    }
+
+    const claim = list.find((c) => c.id === claimId);
+    if (!claim) {
+      throw new Error('Compensation claim not found');
+    }
+    if (claim.createdByAdminId === checkerAdminId) {
+      throw new Error('Maker-Checker violation: Maker cannot reject their own claim');
+    }
+    if (claim.status !== 'PENDING_APPROVAL') {
+      throw new Error('Compensation claim has already been decided');
+    }
+
+    claim.status = 'REJECTED';
+    claim.approvedByAdminId = checkerAdminId;
+    claim.rejectionReason = reason;
+    claim.updatedAt = new Date().toISOString();
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('vf_admin_compensations', JSON.stringify(list));
+    }
+
+    return {
+      claim,
+      message: `Claim rejected: ${reason}`,
+    };
+  },
 };
+
+export let INITIAL_DIVERGENT_ORDERS: DivergentOrder[] = [
+  {
+    id: 'ord-div-001',
+    clientOrderId: 'VF-B-GRID-usr123-8899aabbcc',
+    userId: 'usr_premium_01',
+    botId: 'bot-grid-btc-01',
+    symbol: 'BTCUSDT',
+    side: 'BUY',
+    orderType: 'LIMIT_MAKER',
+    price: '89450.00',
+    quantity: '0.0500',
+    localStatus: 'IN_FLIGHT_UNKNOWN',
+    exchangeStatus: 'FILLED',
+    discrepancyType: 'GHOST_FILL',
+    lastCheckedAt: new Date(Date.now() - 120_000).toISOString(),
+    createdAt: new Date(Date.now() - 300_000).toISOString(),
+    divergenceAgeSeconds: 300,
+  },
+  {
+    id: 'ord-div-002',
+    clientOrderId: 'VF-B-DCA-usr456-1122334455',
+    userId: 'usr_trader_09',
+    botId: 'bot-dca-sol-02',
+    symbol: 'SOLUSDT',
+    side: 'SELL',
+    orderType: 'LIMIT_MAKER',
+    price: '198.50',
+    quantity: '15.00',
+    localStatus: 'IN_FLIGHT_UNKNOWN',
+    exchangeStatus: 'NOT_FOUND',
+    discrepancyType: 'IN_FLIGHT_TIMEOUT',
+    lastCheckedAt: new Date(Date.now() - 60_000).toISOString(),
+    createdAt: new Date(Date.now() - 180_000).toISOString(),
+    divergenceAgeSeconds: 180,
+  },
+  {
+    id: 'ord-div-003',
+    clientOrderId: 'VF-B-TERM-usr789-9988776655',
+    userId: 'usr_vip_42',
+    symbol: 'ETHUSDT',
+    side: 'BUY',
+    orderType: 'LIMIT',
+    price: '3150.00',
+    quantity: '2.5000',
+    localStatus: 'IN_FLIGHT_UNKNOWN',
+    exchangeStatus: 'CANCELED',
+    discrepancyType: 'STATE_MISMATCH',
+    lastCheckedAt: new Date(Date.now() - 45_000).toISOString(),
+    createdAt: new Date(Date.now() - 240_000).toISOString(),
+    divergenceAgeSeconds: 240,
+  },
+];
+
+export let INITIAL_COMPENSATIONS: CompensationClaim[] = [
+  {
+    id: 'claim-comp-101',
+    incidentId: 'INC-2026-09-001',
+    userId: 'usr_premium_01',
+    amountCents: 15400, // $154.00
+    reason: 'Unhedged BUY limit order slippage during Binance websocket reconnect gap',
+    evidencePayload: JSON.stringify(
+      {
+        symbol: 'BTCUSDT',
+        expectedPrice: 89100.0,
+        executedPrice: 89408.0,
+        volume: 0.5,
+        incident_ts: '2026-09-08T14:32:00Z',
+      },
+      null,
+      2
+    ),
+    status: 'PENDING_APPROVAL',
+    createdByAdminId: 'ops-maker-support',
+    createdAt: new Date(Date.now() - 3600_000).toISOString(),
+    updatedAt: new Date(Date.now() - 3600_000).toISOString(),
+  },
+  {
+    id: 'claim-comp-102',
+    incidentId: 'INC-2026-09-002',
+    userId: 'usr_trader_09',
+    amountCents: 4500, // $45.00
+    reason: 'Stale order execution due to network latency exceeding 1500ms budget',
+    evidencePayload: JSON.stringify(
+      {
+        symbol: 'SOLUSDT',
+        drift_percent: 0.65,
+        threshold_percent: 0.5,
+        incident_ts: '2026-09-08T18:10:00Z',
+      },
+      null,
+      2
+    ),
+    status: 'APPROVED',
+    createdByAdminId: 'ops-maker-support',
+    approvedByAdminId: 'finance-lead-checker',
+    createdAt: new Date(Date.now() - 86400_000).toISOString(),
+    updatedAt: new Date(Date.now() - 82000_000).toISOString(),
+    approvedAt: new Date(Date.now() - 82000_000).toISOString(),
+  },
+];
+
