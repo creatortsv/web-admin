@@ -79,6 +79,7 @@ export interface FleetBot {
   label: string;
   strategy: string;
   symbol: string;
+  exchange?: string;
   status: 'RUNNING' | 'SOFT_STOPPING' | 'STOPPED' | 'ERROR';
   activeOrders: number;
   unrealizedPnlUsd: number;
@@ -112,6 +113,7 @@ export interface DivergentOrder {
   userId: string;
   botId?: string;
   symbol: string;
+  exchange?: string;
   side: 'BUY' | 'SELL';
   orderType: 'LIMIT' | 'MARKET' | 'LIMIT_MAKER';
   price: string;
@@ -345,6 +347,7 @@ export const adminApi = {
         label: 'BTC Alpha Grid Core',
         strategy: 'SPOT_GRID',
         symbol: 'BTCUSDT',
+        exchange: 'BINANCE',
         status: 'RUNNING',
         activeOrders: 32,
         unrealizedPnlUsd: 142.5,
@@ -356,10 +359,35 @@ export const adminApi = {
         label: 'SOL 10x Momentum',
         strategy: 'FUTURES_GRID',
         symbol: 'SOLUSDT',
+        exchange: 'BYBIT',
         status: 'RUNNING',
         activeOrders: 24,
         unrealizedPnlUsd: 380.0,
         startedAt: '2026-08-30T09:15:00Z',
+      },
+      {
+        id: 'bot_fl_3',
+        userId: 'usr_trader_02',
+        label: 'ETH Swap Arbitrage',
+        strategy: 'FUTURES_GRID',
+        symbol: 'ETH-USDT',
+        exchange: 'BINGX',
+        status: 'RUNNING',
+        activeOrders: 18,
+        unrealizedPnlUsd: 95.2,
+        startedAt: '2026-09-02T14:30:00Z',
+      },
+      {
+        id: 'bot_fl_4',
+        userId: 'usr_web3_88',
+        label: 'ETH/USD Arbitrum Liquidity Harvest',
+        strategy: 'INFINITY_GRID',
+        symbol: 'ETH/USD',
+        exchange: 'GMX_V2',
+        status: 'RUNNING',
+        activeOrders: 12,
+        unrealizedPnlUsd: 215.8,
+        startedAt: '2026-09-05T10:00:00Z',
       },
     ];
   },
@@ -796,6 +824,7 @@ export let INITIAL_DIVERGENT_ORDERS: DivergentOrder[] = [
     userId: 'usr_premium_01',
     botId: 'bot-grid-btc-01',
     symbol: 'BTCUSDT',
+    exchange: 'BINANCE',
     side: 'BUY',
     orderType: 'LIMIT_MAKER',
     price: '89450.00',
@@ -813,6 +842,7 @@ export let INITIAL_DIVERGENT_ORDERS: DivergentOrder[] = [
     userId: 'usr_trader_09',
     botId: 'bot-dca-sol-02',
     symbol: 'SOLUSDT',
+    exchange: 'BYBIT',
     side: 'SELL',
     orderType: 'LIMIT_MAKER',
     price: '198.50',
@@ -829,6 +859,7 @@ export let INITIAL_DIVERGENT_ORDERS: DivergentOrder[] = [
     clientOrderId: 'VF-B-TERM-usr789-9988776655',
     userId: 'usr_vip_42',
     symbol: 'ETHUSDT',
+    exchange: 'BINGX',
     side: 'BUY',
     orderType: 'LIMIT',
     price: '3150.00',
@@ -839,6 +870,24 @@ export let INITIAL_DIVERGENT_ORDERS: DivergentOrder[] = [
     lastCheckedAt: new Date(Date.now() - 45_000).toISOString(),
     createdAt: new Date(Date.now() - 240_000).toISOString(),
     divergenceAgeSeconds: 240,
+  },
+  {
+    id: 'ord-div-004',
+    clientOrderId: 'VF-B-GMX-usr888-aabb112233',
+    userId: 'usr_web3_88',
+    botId: 'bot-fl_4',
+    symbol: 'ETH/USD',
+    exchange: 'GMX_V2',
+    side: 'BUY',
+    orderType: 'LIMIT',
+    price: '3245.00',
+    quantity: '1.2000',
+    localStatus: 'IN_FLIGHT_UNKNOWN',
+    exchangeStatus: 'NEW',
+    discrepancyType: 'IN_FLIGHT_TIMEOUT',
+    lastCheckedAt: new Date(Date.now() - 30_000).toISOString(),
+    createdAt: new Date(Date.now() - 150_000).toISOString(),
+    divergenceAgeSeconds: 150,
   },
 ];
 
