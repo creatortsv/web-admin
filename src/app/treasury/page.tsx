@@ -23,9 +23,14 @@ export default function TreasuryPage() {
     setTimeout(() => setSaveSuccess(false), 2000);
   };
 
-  const handleTriggerSweep = (vault: TreasuryVault) => {
+  const handleTriggerSweep = async (vault: TreasuryVault) => {
     if (confirm(`Trigger automated cold storage sweep for ${vault.chain} (${vault.asset}) to ${vault.coldSweepAddress}?`)) {
-      alert(`Cold storage sweep initiated for $${vault.currentBalanceUsd} USD.`);
+      try {
+        const res = await adminApi.triggerSweep(vault.id);
+        alert(res.message || `Cold storage sweep initiated for $${vault.currentBalanceUsd} USD.`);
+      } catch (err: any) {
+        alert(`Failed to trigger sweep: ${err?.message || err}`);
+      }
     }
   };
 
