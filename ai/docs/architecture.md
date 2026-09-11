@@ -60,3 +60,13 @@ Monitors order states that have fallen out of sync between Venom's internal stat
 
 - **Tracing**: All calls from `src/services/adminApi.ts` inject W3C `traceparent` headers (`00-{traceId}-{spanId}-01`).
 - **Sentry Data Masking**: PII and sensitive inputs (`maskAllInputs: true`, `maskAllText: true`, `blockAllMedia: true`) are masked across client and server runtimes.
+
+---
+
+## 5. Build & Dev Runtime Architecture
+
+- **Bundler Selection**: Both `next dev --webpack -p 3002` and `next build --webpack` use Webpack rather than Turbopack. This completely prevents the Next.js 16 Turbopack inspector/Sentry console wrapper recursion bug that freezes the event loop.
+- **Gateway Rewrites**:
+  - `/v1/treasury/:path*` rewrites to `TREASURY_GATEWAY_URL` (default: `http://localhost:8089/v1/treasury/:path*`).
+  - `/v1/:path*` rewrites to `API_GATEWAY_URL` (default: `http://localhost:8080/v1/:path*`).
+
