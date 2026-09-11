@@ -7,6 +7,12 @@ const nextConfig: NextConfig = {
   async rewrites() {
     return [
       {
+        source: '/v1/treasury/:path*',
+        destination: process.env.TREASURY_GATEWAY_URL
+          ? `${process.env.TREASURY_GATEWAY_URL}/v1/treasury/:path*`
+          : 'http://localhost:8089/v1/treasury/:path*',
+      },
+      {
         source: '/v1/:path*',
         destination: process.env.API_GATEWAY_URL
           ? `${process.env.API_GATEWAY_URL}/v1/:path*`
