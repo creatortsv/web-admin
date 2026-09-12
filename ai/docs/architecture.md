@@ -69,4 +69,8 @@ Monitors order states that have fallen out of sync between Venom's internal stat
 - **Gateway Rewrites**:
   - `/v1/treasury/:path*` rewrites to `TREASURY_GATEWAY_URL` (default: `http://localhost:8089/v1/treasury/:path*`).
   - `/v1/:path*` rewrites to `API_GATEWAY_URL` (default: `http://localhost:8080/v1/:path*`).
+- **Universal SHA-256 Hashing (`src/lib/auditHasher.ts`)**: Built-in pure JavaScript/TypeScript implementation of standard SHA-256 (FIPS 180-4) with zero Node.js polyfill bloat (`crypto-browserify` removed), guaranteeing isomorphic, crash-free execution in client components, server SSR, and edge environments.
+- **SSR-Safe API Client (`src/services/adminApi.ts`)**: `adminFetch` dynamically prepends `http://127.0.0.1:${PORT}` when running under Node.js (`typeof window === 'undefined'`) to prevent `ERR_INVALID_URL` exceptions on relative paths.
+- **Conditional Sentry Initialization**: `sentry.*.config.ts` checks for active DSN before attaching listeners, preventing console wrapper loops during local development.
+
 

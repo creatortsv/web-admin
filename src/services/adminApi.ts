@@ -169,11 +169,18 @@ export function generateTraceparent(): string {
 }
 
 export async function adminFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  let target = input;
+  if (typeof target === 'string' && target.startsWith('/')) {
+    if (typeof window === 'undefined') {
+      const port = process.env.PORT || '3002';
+      target = `http://127.0.0.1:${port}${target}`;
+    }
+  }
   const headers = new Headers(init?.headers);
   if (!headers.has('traceparent')) {
     headers.set('traceparent', generateTraceparent());
   }
-  return fetch(input, {
+  return fetch(target, {
     ...init,
     headers,
   });
