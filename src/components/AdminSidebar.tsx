@@ -16,11 +16,13 @@ import {
   Zap,
   GitCompare,
   Scale,
+  Handshake,
 } from 'lucide-react';
 import { useAdminAuthStore } from '@/stores/useAdminAuthStore';
 
 const NAV_ITEMS = [
   { href: '/', label: 'Overview', icon: LayoutDashboard },
+  { href: '/settings/broker-rebates', label: 'Broker & Rebates', icon: Handshake },
   { href: '/treasury', label: 'Treasury Vaults', icon: Wallet },
   { href: '/payments', label: 'Payment Gateways', icon: CreditCard },
   { href: '/users', label: 'User Moderation', icon: Users },
