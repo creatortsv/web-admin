@@ -7,6 +7,7 @@ import {
   ExchangeKey,
   AttributionType,
   BrokerConfigStatus,
+  VenueLifecycleStatus,
   TestBrokerAttributionResponse,
 } from '@/services/adminApi';
 import {
@@ -26,6 +27,10 @@ import {
   BookOpen,
   Server,
   KeyRound,
+  Calendar,
+  Clock,
+  Ban,
+  AlertOctagon,
 } from 'lucide-react';
 
 interface ExchangeMeta {
@@ -311,6 +316,10 @@ export default function BrokerRebatesPage() {
   const [showSecret, setShowSecret] = React.useState(false);
   const [attributionType, setAttributionType] = React.useState<AttributionType>('ATTRIBUTION_TYPE_SOURCE_KEY_HEADER');
   const [status, setStatus] = React.useState<BrokerConfigStatus>('BROKER_CONFIG_STATUS_ACTIVE');
+  const [lifecycleStatus, setLifecycleStatus] = React.useState<VenueLifecycleStatus>('VENUE_LIFECYCLE_STATUS_ACTIVE');
+  const [sunsetDeadline, setSunsetDeadline] = React.useState<string>('');
+  const [sunsetNotice, setSunsetNotice] = React.useState<string>('');
+  const [showTerminatedModal, setShowTerminatedModal] = React.useState<boolean>(false);
   const [rebateRatePercent, setRebateRatePercent] = React.useState<number>(45);
   const [clientPrefix, setClientPrefix] = React.useState<string>('x-VF-');
   const [notes, setNotes] = React.useState('');
@@ -348,6 +357,9 @@ export default function BrokerRebatesPage() {
       setRawSecret('');
       setAttributionType(activeConfig.attributionType);
       setStatus(activeConfig.status);
+      setLifecycleStatus(activeConfig.lifecycleStatus || (activeConfig.status === 'BROKER_CONFIG_STATUS_ACTIVE' ? 'VENUE_LIFECYCLE_STATUS_ACTIVE' : 'VENUE_LIFECYCLE_STATUS_TERMINATED'));
+      setSunsetDeadline(activeConfig.sunsetDeadline ? activeConfig.sunsetDeadline.slice(0, 16) : '');
+      setSunsetNotice(activeConfig.sunsetNotice || '');
       setRebateRatePercent(activeConfig.rebateRateBps / 100);
       setNotes(activeConfig.notes || '');
       setClientPrefix(activeConfig.extraParams?.client_order_id_prefix || 'x-VF-');
@@ -357,6 +369,9 @@ export default function BrokerRebatesPage() {
       setRawSecret('');
       setAttributionType(meta.defaultAttribution);
       setStatus('BROKER_CONFIG_STATUS_ACTIVE');
+      setLifecycleStatus('VENUE_LIFECYCLE_STATUS_ACTIVE');
+      setSunsetDeadline('');
+      setSunsetNotice('');
       setRebateRatePercent(meta.key === 'EXCHANGE_HYPERLIQUID' ? 0.1 : 30);
       setNotes('');
       setClientPrefix('x-VF-');
@@ -472,7 +487,10 @@ export default function BrokerRebatesPage() {
           : attributionType),
         rawIdentifier: rawIdentifier || activeConfig?.maskedIdentifier || (selectedExchange === 'EXCHANGE_HYPERLIQUID' ? '0x0000000000000000000000000000000000000000' : 'x-VF-'),
         rawSecret: rawSecret || undefined,
-        status,
+        status: (lifecycleStatus === 'VENUE_LIFECYCLE_STATUS_TERMINATED' ? 'BROKER_CONFIG_STATUS_INACTIVE' : 'BROKER_CONFIG_STATUS_ACTIVE'),
+        lifecycleStatus,
+        sunsetDeadline: lifecycleStatus === 'VENUE_LIFECYCLE_STATUS_SUNSETTING' && sunsetDeadline ? new Date(sunsetDeadline).toISOString() : null,
+        sunsetNotice: lifecycleStatus === 'VENUE_LIFECYCLE_STATUS_SUNSETTING' ? sunsetNotice : null,
         rebateRateBps: Math.round(rebateRatePercent * 100),
         rebatePercentage: rebateRatePercent,
         clientOrderIdPrefix,
@@ -527,8 +545,23 @@ export default function BrokerRebatesPage() {
     }
   };
 
-  const handleQuickStatusToggle = async (newStatus: BrokerConfigStatus) => {
+  const handleQuickLifecycleToggle = async (newLifecycle: VenueLifecycleStatus) => {
+    if (newLifecycle === 'VENUE_LIFECYCLE_STATUS_TERMINATED') {
+      setShowTerminatedModal(true);
+      return;
+    }
+    setLifecycleStatus(newLifecycle);
+    const newStatus: BrokerConfigStatus = 'BROKER_CONFIG_STATUS_ACTIVE';
     setStatus(newStatus);
+
+    let nextDeadline = sunsetDeadline;
+    if (newLifecycle === 'VENUE_LIFECYCLE_STATUS_SUNSETTING' && !sunsetDeadline) {
+      const d = new Date();
+      d.setDate(d.getDate() + 14);
+      nextDeadline = d.toISOString().slice(0, 16);
+      setSunsetDeadline(nextDeadline);
+    }
+
     if (!activeConfig) return;
     try {
       const updated = await adminApi.updateBrokerConfig({
@@ -536,6 +569,9 @@ export default function BrokerRebatesPage() {
         attributionType: activeConfig.attributionType,
         rawIdentifier: activeConfig.maskedIdentifier,
         status: newStatus,
+        lifecycleStatus: newLifecycle,
+        sunsetDeadline: newLifecycle === 'VENUE_LIFECYCLE_STATUS_SUNSETTING' && nextDeadline ? new Date(nextDeadline).toISOString() : null,
+        sunsetNotice: newLifecycle === 'VENUE_LIFECYCLE_STATUS_SUNSETTING' ? (sunsetNotice || 'Venue entering sunset phase. Migrations advised.') : null,
         rebateRateBps: activeConfig.rebateRateBps,
         expectedVersion: activeConfig.version,
         notes: activeConfig.notes,
@@ -543,7 +579,32 @@ export default function BrokerRebatesPage() {
       });
       setConfigs((prev) => prev.map((c) => (c.exchange === selectedExchange ? updated : c)));
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Failed to update status');
+      alert(err instanceof Error ? err.message : 'Failed to update lifecycle status');
+    }
+  };
+
+  const handleConfirmDecommission = async () => {
+    setShowTerminatedModal(false);
+    setLifecycleStatus('VENUE_LIFECYCLE_STATUS_TERMINATED');
+    setStatus('BROKER_CONFIG_STATUS_INACTIVE');
+    if (!activeConfig) return;
+    try {
+      const updated = await adminApi.updateBrokerConfig({
+        exchange: selectedExchange,
+        attributionType: activeConfig.attributionType,
+        rawIdentifier: activeConfig.maskedIdentifier,
+        status: 'BROKER_CONFIG_STATUS_INACTIVE',
+        lifecycleStatus: 'VENUE_LIFECYCLE_STATUS_TERMINATED',
+        sunsetDeadline: null,
+        sunsetNotice: 'Venue decommissioned by operator. Automated graceful soft-stop enforced.',
+        rebateRateBps: activeConfig.rebateRateBps,
+        expectedVersion: activeConfig.version,
+        notes: activeConfig.notes,
+        extraParams: activeConfig.extraParams,
+      });
+      setConfigs((prev) => prev.map((c) => (c.exchange === selectedExchange ? updated : c)));
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Failed to decommission venue');
     }
   };
 
@@ -615,13 +676,15 @@ export default function BrokerRebatesPage() {
                 </span>
                 <span
                   className={`h-2 w-2 rounded-full ${
-                    isActive
+                    (cfg?.lifecycleStatus === 'VENUE_LIFECYCLE_STATUS_ACTIVE' || (!cfg?.lifecycleStatus && isActive))
                       ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]'
-                      : isMaint
-                      ? 'bg-amber-400'
-                      : 'bg-slate-600'
+                      : cfg?.lifecycleStatus === 'VENUE_LIFECYCLE_STATUS_RESTRICTED_NEW'
+                      ? 'bg-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.6)]'
+                      : cfg?.lifecycleStatus === 'VENUE_LIFECYCLE_STATUS_SUNSETTING'
+                      ? 'bg-orange-400 shadow-[0_0_8px_rgba(249,115,22,0.6)] animate-pulse'
+                      : 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.6)]'
                   }`}
-                  title={cfg?.status || 'INACTIVE'}
+                  title={cfg?.lifecycleStatus || cfg?.status || 'INACTIVE'}
                 />
               </div>
               <div>
@@ -629,6 +692,17 @@ export default function BrokerRebatesPage() {
                 <div className="text-[11px] font-mono text-slate-400 truncate mt-0.5">
                   {cfg ? `${(cfg.rebateRateBps / 100).toFixed(1)}% Rebate` : 'Unconfigured'}
                 </div>
+                {cfg?.lifecycleStatus && cfg.lifecycleStatus !== 'VENUE_LIFECYCLE_STATUS_ACTIVE' && (
+                  <div className={`mt-1 text-[9px] font-mono font-bold px-1.5 py-0.5 rounded inline-block uppercase border ${
+                    cfg.lifecycleStatus === 'VENUE_LIFECYCLE_STATUS_RESTRICTED_NEW'
+                      ? 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+                      : cfg.lifecycleStatus === 'VENUE_LIFECYCLE_STATUS_SUNSETTING'
+                      ? 'bg-orange-500/10 text-orange-300 border-orange-500/30'
+                      : 'bg-rose-500/10 text-rose-300 border-rose-500/30'
+                  }`}>
+                    {cfg.lifecycleStatus.replace('VENUE_LIFECYCLE_STATUS_', '')}
+                  </div>
+                )}
               </div>
               {cfg?.isKmsSealed && (
                 <div className="mt-2 flex items-center gap-1 text-[10px] font-mono text-emerald-400/90">
@@ -669,32 +743,105 @@ export default function BrokerRebatesPage() {
                 </div>
               </div>
 
-              {/* Status Selector Pill */}
+              {/* 4-Stage Venue Lifecycle Switchboard */}
               <div className="flex items-center gap-1.5 bg-[#05070D] p-1 rounded-xl border border-slate-800">
-                {(['BROKER_CONFIG_STATUS_ACTIVE', 'BROKER_CONFIG_STATUS_MAINTENANCE', 'BROKER_CONFIG_STATUS_INACTIVE'] as BrokerConfigStatus[]).map((st) => {
-                  const isCurrent = (activeConfig?.status || status) === st;
-                  const label = st.replace('BROKER_CONFIG_STATUS_', '');
+                {([
+                  { key: 'VENUE_LIFECYCLE_STATUS_ACTIVE', label: 'ACTIVE', color: 'emerald' },
+                  { key: 'VENUE_LIFECYCLE_STATUS_RESTRICTED_NEW', label: 'RESTRICTED', color: 'amber' },
+                  { key: 'VENUE_LIFECYCLE_STATUS_SUNSETTING', label: 'SUNSETTING', color: 'orange' },
+                  { key: 'VENUE_LIFECYCLE_STATUS_TERMINATED', label: 'TERMINATED', color: 'rose' },
+                ] as const).map((stage) => {
+                  const isCurrent = (activeConfig?.lifecycleStatus || lifecycleStatus) === stage.key;
                   return (
                     <button
-                      key={st}
+                      key={stage.key}
                       type="button"
-                      onClick={() => handleQuickStatusToggle(st)}
+                      onClick={() => handleQuickLifecycleToggle(stage.key)}
                       className={`px-3 py-1 text-xs font-mono font-semibold rounded-lg transition-all ${
                         isCurrent
-                          ? st === 'BROKER_CONFIG_STATUS_ACTIVE'
+                          ? stage.color === 'emerald'
                             ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-[0_0_12px_rgba(52,211,153,0.2)]'
-                            : st === 'BROKER_CONFIG_STATUS_MAINTENANCE'
-                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                            : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                            : stage.color === 'amber'
+                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-[0_0_12px_rgba(245,158,11,0.2)]'
+                            : stage.color === 'orange'
+                            ? 'bg-orange-500/20 text-orange-300 border border-orange-500/40 shadow-[0_0_12px_rgba(249,115,22,0.2)]'
+                            : 'bg-rose-500/20 text-rose-300 border border-rose-500/40 shadow-[0_0_12px_rgba(244,63,94,0.2)]'
                           : 'text-slate-400 hover:text-white'
                       }`}
                     >
-                      {label}
+                      {stage.label}
                     </button>
                   );
                 })}
               </div>
             </div>
+
+            {/* Sunsetting Grace Period & Countdown Scheduler */}
+            {(activeConfig?.lifecycleStatus || lifecycleStatus) === 'VENUE_LIFECYCLE_STATUS_SUNSETTING' && (
+              <div className="mt-4 p-4 rounded-xl border border-orange-500/30 bg-orange-950/20 space-y-4">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="h-5 w-5 text-orange-400 mt-0.5 shrink-0" />
+                  <div className="space-y-1">
+                    <h3 className="text-sm font-bold text-orange-200 font-mono flex items-center gap-2">
+                      <span>Venue Sunsetting & Grace Period Scheduler</span>
+                      <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-orange-500/20 text-orange-300 border border-orange-500/40">
+                        Grace Period Enforced
+                      </span>
+                    </h3>
+                    <p className="text-xs text-orange-300/80 leading-relaxed">
+                      Adding new exchange keys and creating new trading bots on this venue are immediately disabled in web-app.
+                      Active user bots continue running safely until the sunset deadline. At the deadline, automated Graceful Soft-Stop cancels all resting limit orders with <strong className="text-white">zero market dumping</strong>.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-orange-500/20">
+                  <div className="space-y-2">
+                    <label className="text-xs font-mono font-semibold text-slate-300 flex items-center gap-1.5">
+                      <Clock className="h-3.5 w-3.5 text-orange-400" />
+                      Sunset Deadline (Grace Period End)
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={sunsetDeadline}
+                      onChange={(e) => setSunsetDeadline(e.target.value)}
+                      className="w-full bg-[#05070D] border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-orange-500"
+                    />
+                    <div className="flex items-center gap-1.5 pt-1">
+                      <span className="text-[11px] text-slate-400 font-mono">Quick Preset:</span>
+                      {[7, 14, 30].map((days) => (
+                        <button
+                          key={days}
+                          type="button"
+                          onClick={() => {
+                            const d = new Date();
+                            d.setDate(d.getDate() + days);
+                            setSunsetDeadline(d.toISOString().slice(0, 16));
+                          }}
+                          className="px-2 py-0.5 text-[11px] font-mono bg-orange-500/10 hover:bg-orange-500/20 text-orange-300 border border-orange-500/30 rounded transition-colors"
+                        >
+                          +{days}d
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-xs font-mono font-semibold text-slate-300 flex items-center gap-1.5">
+                      <AlertOctagon className="h-3.5 w-3.5 text-orange-400" />
+                      User Alert Notice (Broadcast to web-app)
+                    </label>
+                    <textarea
+                      value={sunsetNotice}
+                      onChange={(e) => setSunsetNotice(e.target.value)}
+                      placeholder="e.g. Trading operations on this exchange will sunset soon. Please migrate active bots."
+                      rows={3}
+                      className="w-full bg-[#05070D] border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-orange-500 resize-none"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Sub-Navigation Tabs */}
             <div className="flex items-center gap-6 mt-6 border-b border-slate-800 text-sm font-mono">
@@ -1196,7 +1343,7 @@ export default function BrokerRebatesPage() {
                       <div className="text-white font-bold text-sm mt-0.5">{testResult.attributedOrderId}</div>
                     </div>
 
-                    {Object.keys(testResult.injectedHeaders).length > 0 && (
+                    {testResult.injectedHeaders && Object.keys(testResult.injectedHeaders).length > 0 && (
                       <div>
                         <div className="text-[11px] text-slate-500 uppercase">Injected HTTP Headers</div>
                         <div className="bg-slate-900/80 p-2.5 rounded-lg border border-slate-800 mt-1 space-y-1">
@@ -1210,7 +1357,7 @@ export default function BrokerRebatesPage() {
                       </div>
                     )}
 
-                    {Object.keys(testResult.injectedParams).length > 0 && (
+                    {testResult.injectedParams && Object.keys(testResult.injectedParams).length > 0 && (
                       <div>
                         <div className="text-[11px] text-slate-500 uppercase">Injected Payload / Query Parameters</div>
                         <div className="bg-slate-900/80 p-2.5 rounded-lg border border-slate-800 mt-1 space-y-1">
@@ -1447,6 +1594,56 @@ export default function BrokerRebatesPage() {
           </div>
         </div>
       </div>
+
+      {/* Decommission & Graceful Soft-Stop Confirmation Modal */}
+      {showTerminatedModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-[#0B0F19] border border-rose-500/40 rounded-2xl p-6 max-w-lg w-full space-y-5 shadow-[0_0_50px_rgba(244,63,94,0.25)]">
+            <div className="flex items-start gap-3">
+              <div className="h-10 w-10 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0">
+                <Ban className="h-5 w-5" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-white font-mono">
+                  Confirm Venue Decommission & Soft-Stop
+                </h3>
+                <p className="text-xs text-rose-300/90 leading-relaxed">
+                  You are about to permanently decommission <span className="font-bold text-white">{meta.displayName}</span>.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-rose-950/20 border border-rose-500/30 text-xs text-slate-300 space-y-2">
+              <div className="font-semibold text-rose-300 font-mono flex items-center gap-1.5">
+                <ShieldCheck className="h-4 w-4" /> Safety Protocol Invariants:
+              </div>
+              <ul className="list-disc list-inside space-y-1 text-slate-300">
+                <li><span className="text-white font-semibold">Zero Market Dumping</span>: All active bots will execute a graceful soft-stop cancelling resting limit orders only. User inventory will NOT be liquidated at market price.</li>
+                <li><span className="text-white font-semibold">Onboarding Block</span>: New exchange API keys and bot creation will remain forbidden.</li>
+                <li><span className="text-white font-semibold">Audit Record</span>: A permanent <code className="text-rose-400">SUNSET_SOFT_STOP</code> event will be appended to the bot history ledger.</li>
+              </ul>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowTerminatedModal(false)}
+                className="px-4 py-2 text-xs font-mono font-semibold text-slate-400 hover:text-white bg-slate-800/60 hover:bg-slate-800 rounded-lg border border-slate-700 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDecommission}
+                className="px-4 py-2 text-xs font-mono font-semibold text-white bg-rose-600 hover:bg-rose-500 rounded-lg shadow-[0_0_15px_rgba(244,63,94,0.4)] transition-all flex items-center gap-2"
+              >
+                <Ban className="h-4 w-4" />
+                Confirm Decommission
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
