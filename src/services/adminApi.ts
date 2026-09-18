@@ -171,12 +171,21 @@ export type BrokerConfigStatus =
   | 'BROKER_CONFIG_STATUS_MAINTENANCE'
   | 'BROKER_CONFIG_STATUS_INACTIVE';
 
+export type VenueLifecycleStatus =
+  | 'VENUE_LIFECYCLE_STATUS_ACTIVE'
+  | 'VENUE_LIFECYCLE_STATUS_RESTRICTED_NEW'
+  | 'VENUE_LIFECYCLE_STATUS_SUNSETTING'
+  | 'VENUE_LIFECYCLE_STATUS_TERMINATED';
+
 export interface BrokerConfigDTO {
   id?: string;
   exchange: ExchangeKey;
   environment?: string;
   attributionType: AttributionType;
   status: BrokerConfigStatus;
+  lifecycleStatus?: VenueLifecycleStatus;
+  sunsetDeadline?: string | null;
+  sunsetNotice?: string | null;
   maskedIdentifier: string;
   isKmsSealed: boolean;
   rebateRateBps: number;
@@ -207,6 +216,9 @@ export interface UpdateBrokerConfigRequest {
   rebatePercentage?: number;
   payoutAddress?: string;
   status: BrokerConfigStatus;
+  lifecycleStatus?: VenueLifecycleStatus;
+  sunsetDeadline?: string | null;
+  sunsetNotice?: string | null;
   rebateRateBps: number;
   expectedVersion: number;
   notes?: string;
@@ -221,11 +233,19 @@ export interface TestBrokerAttributionRequest {
 
 export interface TestBrokerAttributionResponse {
   success: boolean;
-  attributedOrderId: string;
-  injectedHeaders: Record<string, string>;
-  injectedParams: Record<string, string>;
-  statusMessage: string;
-  attributionLatencyNanos: number;
+  attributedOrderId?: string;
+  injectedHeaders?: Record<string, string>;
+  injectedParams?: Record<string, string>;
+  statusMessage?: string;
+  attributionLatencyNanos?: number;
+  exchange?: ExchangeKey;
+  attributionType?: AttributionType;
+  testOrderId?: string;
+  evaluatedOrderId?: string;
+  injectedPayload?: Record<string, string>;
+  executionLatencyMicros?: number;
+  verifiedAt?: string;
+  details?: string;
 }
 
 export interface PublicExchangeConfigDTO {
@@ -234,6 +254,11 @@ export interface PublicExchangeConfigDTO {
   portalUrl: string;
   staticNatIps: string[];
   isBrokerActive: boolean;
+  lifecycleStatus?: VenueLifecycleStatus;
+  sunsetDeadline?: string | null;
+  sunsetNotice?: string | null;
+  allowNewKeys?: boolean;
+  allowNewBots?: boolean;
 }
 
 
@@ -982,6 +1007,9 @@ export const adminApi = {
             environment: c.environment || 'production',
             attributionType: (c.attribution_type || 'ATTRIBUTION_TYPE_CLIENT_ORDER_ID_PREFIX') as AttributionType,
             status: (c.is_active ? 'BROKER_CONFIG_STATUS_ACTIVE' : 'BROKER_CONFIG_STATUS_INACTIVE') as BrokerConfigStatus,
+            lifecycleStatus: (c.lifecycle_status || (c.is_active ? 'VENUE_LIFECYCLE_STATUS_ACTIVE' : 'VENUE_LIFECYCLE_STATUS_TERMINATED')) as VenueLifecycleStatus,
+            sunsetDeadline: c.sunset_deadline ? (typeof c.sunset_deadline === 'string' ? c.sunset_deadline : new Date(c.sunset_deadline.seconds * 1000).toISOString()) : null,
+            sunsetNotice: c.sunset_notice || null,
             maskedIdentifier: c.masked_identifier || '***',
             isKmsSealed: c.has_encrypted_secrets ?? true,
             rebateRateBps: Math.round((c.rebate_percentage || 0) * 100),
@@ -1024,6 +1052,9 @@ export const adminApi = {
             environment: c.environment || 'production',
             attributionType: (c.attribution_type || 'ATTRIBUTION_TYPE_CLIENT_ORDER_ID_PREFIX') as AttributionType,
             status: (c.is_active ? 'BROKER_CONFIG_STATUS_ACTIVE' : 'BROKER_CONFIG_STATUS_INACTIVE') as BrokerConfigStatus,
+            lifecycleStatus: (c.lifecycle_status || (c.is_active ? 'VENUE_LIFECYCLE_STATUS_ACTIVE' : 'VENUE_LIFECYCLE_STATUS_TERMINATED')) as VenueLifecycleStatus,
+            sunsetDeadline: c.sunset_deadline ? (typeof c.sunset_deadline === 'string' ? c.sunset_deadline : new Date(c.sunset_deadline.seconds * 1000).toISOString()) : null,
+            sunsetNotice: c.sunset_notice || null,
             maskedIdentifier: c.masked_identifier || '***',
             isKmsSealed: c.has_encrypted_secrets ?? true,
             rebateRateBps: Math.round((c.rebate_percentage || 0) * 100),
@@ -1071,6 +1102,9 @@ export const adminApi = {
           rebate_percentage: rebatePct,
           payout_address: req.payoutAddress || (req.exchange === 'EXCHANGE_HYPERLIQUID' ? req.rawIdentifier : ''),
           is_active: req.status === 'BROKER_CONFIG_STATUS_ACTIVE',
+          lifecycle_status: req.lifecycleStatus || (req.status === 'BROKER_CONFIG_STATUS_ACTIVE' ? 'VENUE_LIFECYCLE_STATUS_ACTIVE' : 'VENUE_LIFECYCLE_STATUS_TERMINATED'),
+          sunset_deadline: req.sunsetDeadline || null,
+          sunset_notice: req.sunsetNotice || '',
           expected_version: req.expectedVersion,
           raw_secrets_plaintext: req.rawSecret || '',
           change_reason: req.notes || 'Updated via Admin Console',
@@ -1086,6 +1120,9 @@ export const adminApi = {
             environment: c.environment || 'production',
             attributionType: req.attributionType,
             status: c.is_active ? 'BROKER_CONFIG_STATUS_ACTIVE' : 'BROKER_CONFIG_STATUS_INACTIVE',
+            lifecycleStatus: (c.lifecycle_status || req.lifecycleStatus || (c.is_active ? 'VENUE_LIFECYCLE_STATUS_ACTIVE' : 'VENUE_LIFECYCLE_STATUS_TERMINATED')) as VenueLifecycleStatus,
+            sunsetDeadline: c.sunset_deadline ? (typeof c.sunset_deadline === 'string' ? c.sunset_deadline : new Date(c.sunset_deadline.seconds * 1000).toISOString()) : (req.sunsetDeadline || null),
+            sunsetNotice: c.sunset_notice || req.sunsetNotice || null,
             maskedIdentifier: c.masked_identifier || '***',
             isKmsSealed: c.has_encrypted_secrets ?? true,
             rebateRateBps: Math.round((c.rebate_percentage || 0) * 100),
@@ -1120,6 +1157,9 @@ export const adminApi = {
       environment: req.environment || 'production',
       attributionType: req.attributionType,
       status: req.status,
+      lifecycleStatus: req.lifecycleStatus || (req.status === 'BROKER_CONFIG_STATUS_ACTIVE' ? 'VENUE_LIFECYCLE_STATUS_ACTIVE' : 'VENUE_LIFECYCLE_STATUS_TERMINATED'),
+      sunsetDeadline: req.sunsetDeadline || null,
+      sunsetNotice: req.sunsetNotice || null,
       maskedIdentifier: masked,
       isKmsSealed: true,
       rebateRateBps: req.rebateRateBps,
@@ -1220,6 +1260,20 @@ export const adminApi = {
       const res = await adminFetch('/v1/exchanges/public-config');
       if (res.ok) {
         const data = await res.json();
+        if (data.exchanges && typeof data.exchanges === 'object') {
+          return Object.entries(data.exchanges).map(([slug, cfg]: [string, any]) => ({
+            exchange: (slug.toUpperCase().startsWith('EXCHANGE_') ? slug.toUpperCase() : `EXCHANGE_${slug.toUpperCase()}`) as ExchangeKey,
+            name: cfg.name || slug,
+            portalUrl: cfg.portalUrl || cfg.portal_url || '',
+            staticNatIps: data.natEgressIps || cfg.static_nat_ips || ['34.118.24.10', '34.118.24.11'],
+            isBrokerActive: cfg.allowNewBots ?? cfg.is_broker_active ?? true,
+            lifecycleStatus: cfg.lifecycleStatus || cfg.lifecycle_status || 'VENUE_LIFECYCLE_STATUS_ACTIVE',
+            sunsetDeadline: cfg.sunsetDeadline || cfg.sunset_deadline || null,
+            sunsetNotice: cfg.sunsetNotice || cfg.sunset_notice || null,
+            allowNewKeys: cfg.allowNewKeys ?? cfg.allow_new_keys ?? true,
+            allowNewBots: cfg.allowNewBots ?? cfg.allow_new_bots ?? true,
+          }));
+        }
         if (data.configs) return data.configs;
       }
     } catch {
@@ -1358,6 +1412,7 @@ export let INITIAL_BROKER_CONFIGS: BrokerConfigDTO[] = [
     exchange: 'EXCHANGE_BINANCE_SPOT',
     attributionType: 'ATTRIBUTION_TYPE_CLIENT_ORDER_ID_PREFIX',
     status: 'BROKER_CONFIG_STATUS_ACTIVE',
+    lifecycleStatus: 'VENUE_LIFECYCLE_STATUS_ACTIVE',
     maskedIdentifier: 'x-V***-',
     isKmsSealed: true,
     rebateRateBps: 3000,
@@ -1370,6 +1425,7 @@ export let INITIAL_BROKER_CONFIGS: BrokerConfigDTO[] = [
     exchange: 'EXCHANGE_BINANCE_FUTURES',
     attributionType: 'ATTRIBUTION_TYPE_CLIENT_ORDER_ID_PREFIX',
     status: 'BROKER_CONFIG_STATUS_ACTIVE',
+    lifecycleStatus: 'VENUE_LIFECYCLE_STATUS_ACTIVE',
     maskedIdentifier: 'x-V***-',
     isKmsSealed: true,
     rebateRateBps: 3000,
@@ -1382,6 +1438,7 @@ export let INITIAL_BROKER_CONFIGS: BrokerConfigDTO[] = [
     exchange: 'EXCHANGE_BYBIT',
     attributionType: 'ATTRIBUTION_TYPE_CLIENT_ORDER_ID_PREFIX',
     status: 'BROKER_CONFIG_STATUS_ACTIVE',
+    lifecycleStatus: 'VENUE_LIFECYCLE_STATUS_ACTIVE',
     maskedIdentifier: 'x-V***-',
     isKmsSealed: true,
     rebateRateBps: 3500,
@@ -1394,6 +1451,7 @@ export let INITIAL_BROKER_CONFIGS: BrokerConfigDTO[] = [
     exchange: 'EXCHANGE_BINGX',
     attributionType: 'ATTRIBUTION_TYPE_SOURCE_KEY_HEADER',
     status: 'BROKER_CONFIG_STATUS_ACTIVE',
+    lifecycleStatus: 'VENUE_LIFECYCLE_STATUS_ACTIVE',
     maskedIdentifier: 'BX-***-ILL',
     isKmsSealed: true,
     rebateRateBps: 4500,
@@ -1407,6 +1465,7 @@ export let INITIAL_BROKER_CONFIGS: BrokerConfigDTO[] = [
     exchange: 'EXCHANGE_BITGET',
     attributionType: 'ATTRIBUTION_TYPE_REFERRAL_CODE',
     status: 'BROKER_CONFIG_STATUS_ACTIVE',
+    lifecycleStatus: 'VENUE_LIFECYCLE_STATUS_ACTIVE',
     maskedIdentifier: 'ven***',
     isKmsSealed: true,
     rebateRateBps: 4000,
@@ -1419,6 +1478,7 @@ export let INITIAL_BROKER_CONFIGS: BrokerConfigDTO[] = [
     exchange: 'EXCHANGE_HYPERLIQUID',
     attributionType: 'ATTRIBUTION_TYPE_BUILDER_FEE',
     status: 'BROKER_CONFIG_STATUS_ACTIVE',
+    lifecycleStatus: 'VENUE_LIFECYCLE_STATUS_ACTIVE',
     maskedIdentifier: '0x7***2245',
     isKmsSealed: true,
     rebateRateBps: 10,
@@ -1431,6 +1491,7 @@ export let INITIAL_BROKER_CONFIGS: BrokerConfigDTO[] = [
     exchange: 'EXCHANGE_GMX_V2',
     attributionType: 'ATTRIBUTION_TYPE_REFERRAL_CODE',
     status: 'BROKER_CONFIG_STATUS_ACTIVE',
+    lifecycleStatus: 'VENUE_LIFECYCLE_STATUS_ACTIVE',
     maskedIdentifier: 'ven***',
     isKmsSealed: true,
     rebateRateBps: 1000,

@@ -64,7 +64,7 @@ describe('Broker & Rebate Governance API', () => {
 
     expect(res.success).toBe(true);
     expect(res.attributedOrderId).toBe('x-VF-TEST-ORD-001');
-    expect(res.injectedHeaders['X-SOURCE-KEY']).toBe('BX-AI-SKILL');
+    expect(res.injectedHeaders?.['X-SOURCE-KEY']).toBe('BX-AI-SKILL');
     expect(res.attributionLatencyNanos).toBeLessThan(1000); // <1000 ns = <1μs
   });
 
@@ -99,8 +99,8 @@ describe('Broker & Rebate Governance API', () => {
     });
 
     expect(res.success).toBe(true);
-    expect(res.injectedParams['builder']).toBeDefined();
-    expect(res.injectedParams['fee']).toBe('10');
+    expect(res.injectedParams?.['builder']).toBeDefined();
+    expect(res.injectedParams?.['fee']).toBe('10');
     expect(res.attributionLatencyNanos).toBeLessThan(1000); // <1μs SLA
   });
 
