@@ -1001,7 +1001,7 @@ export const adminApi = {
       if (res.ok) {
         const data = await res.json();
         if (data.configs && Array.isArray(data.configs)) {
-          return data.configs.map((c: any) => ({
+          const mapped: BrokerConfigDTO[] = data.configs.map((c: any) => ({
             id: c.id,
             exchange: (c.exchange?.toUpperCase().startsWith('EXCHANGE_') ? c.exchange : `EXCHANGE_${c.exchange?.toUpperCase()}`) as ExchangeKey,
             environment: c.environment || 'production',
@@ -1025,10 +1025,16 @@ export const adminApi = {
             notes: c.notes || '',
             extraParams: c.payload_params || {},
           }));
+          if (typeof window !== 'undefined' && mapped.length > 0) {
+            localStorage.setItem('vf_admin_broker_configs', JSON.stringify(mapped));
+          }
+          return mapped;
         }
+      } else {
+        console.warn(`[adminApi.getBrokerConfigs] API returned status ${res.status}`);
       }
-    } catch {
-      // Fallback for standalone dev
+    } catch (err) {
+      console.warn('[adminApi.getBrokerConfigs] Network error fetching broker configs, falling back:', err);
     }
 
     if (typeof window !== 'undefined') {
@@ -1046,7 +1052,7 @@ export const adminApi = {
         const data = await res.json();
         if (data.config) {
           const c = data.config;
-          return {
+          const result: BrokerConfigDTO = {
             id: c.id,
             exchange: (c.exchange?.toUpperCase().startsWith('EXCHANGE_') ? c.exchange : `EXCHANGE_${c.exchange?.toUpperCase()}`) as ExchangeKey,
             environment: c.environment || 'production',
@@ -1070,10 +1076,24 @@ export const adminApi = {
             notes: c.notes || '',
             extraParams: c.payload_params || {},
           };
+          if (typeof window !== 'undefined') {
+            let list = [...INITIAL_BROKER_CONFIGS];
+            const saved = localStorage.getItem('vf_admin_broker_configs');
+            if (saved) {
+              try { list = JSON.parse(saved); } catch { /* ignore */ }
+            }
+            const idx = list.findIndex((item) => item.exchange === result.exchange);
+            if (idx >= 0) list[idx] = result;
+            else list.push(result);
+            localStorage.setItem('vf_admin_broker_configs', JSON.stringify(list));
+          }
+          return result;
         }
+      } else {
+        console.warn(`[adminApi.getBrokerConfig] API returned status ${res.status} for ${exchangeSlug}`);
       }
-    } catch {
-      // Fallback
+    } catch (err) {
+      console.warn(`[adminApi.getBrokerConfig] Network error for ${exchangeSlug}, falling back:`, err);
     }
 
     const configs = await adminApi.getBrokerConfigs();
@@ -1114,7 +1134,7 @@ export const adminApi = {
         const data = await res.json();
         if (data.config) {
           const c = data.config;
-          return {
+          const result: BrokerConfigDTO = {
             id: c.id,
             exchange: req.exchange,
             environment: c.environment || 'production',
@@ -1127,16 +1147,41 @@ export const adminApi = {
             isKmsSealed: c.has_encrypted_secrets ?? true,
             rebateRateBps: Math.round((c.rebate_percentage || 0) * 100),
             rebatePercentage: c.rebate_percentage,
+            clientOrderIdPrefix: c.client_order_id_prefix || req.clientOrderIdPrefix,
+            headerKey: c.header_key || req.headerKey,
+            headerValue: c.header_value || req.headerValue,
+            payloadParams: c.payload_params || req.payloadParams || req.extraParams,
+            payoutAddress: c.payout_address || req.payoutAddress,
             version: c.version || (req.expectedVersion + 1),
             updatedAt: new Date().toISOString(),
             updatedBy: c.updated_by || 'admin-governance-console',
             notes: req.notes || '',
             extraParams: c.payload_params || req.extraParams || {},
           };
+
+          if (typeof window !== 'undefined') {
+            let list = [...INITIAL_BROKER_CONFIGS];
+            const saved = localStorage.getItem('vf_admin_broker_configs');
+            if (saved) {
+              try { list = JSON.parse(saved); } catch { /* ignore */ }
+            }
+            const idx = list.findIndex((item) => item.exchange === req.exchange);
+            if (idx >= 0) {
+              list[idx] = result;
+            } else {
+              list.push(result);
+            }
+            localStorage.setItem('vf_admin_broker_configs', JSON.stringify(list));
+          }
+
+          return result;
         }
+      } else {
+        const errText = await res.text().catch(() => '');
+        console.error(`[adminApi.updateBrokerConfig] API returned HTTP ${res.status}:`, errText);
       }
-    } catch {
-      // Fallback
+    } catch (err) {
+      console.error('[adminApi.updateBrokerConfig] Network / API error:', err);
     }
 
     // LocalStorage fallback for standalone admin development
