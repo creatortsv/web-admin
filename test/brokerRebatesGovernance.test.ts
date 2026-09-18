@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { adminApi, INITIAL_BROKER_CONFIGS, INITIAL_PUBLIC_EXCHANGE_CONFIGS } from '../src/services/adminApi';
 
 describe('Broker & Rebate Governance API', () => {
@@ -113,5 +113,47 @@ describe('Broker & Rebate Governance API', () => {
     expect(bingx?.portalUrl).toContain('bingx.com');
     expect(bingx?.staticNatIps).toContain('34.118.24.10');
     expect(bingx?.staticNatIps).toContain('34.118.24.11');
+  });
+
+  it('synchronizes successful API response into localStorage cache', async () => {
+    const mockConfig = {
+      id: 'cfg_binance_spot_1',
+      exchange: 'binance_spot',
+      environment: 'production',
+      broker_id: 'x-VF-PROD',
+      masked_identifier: 'x-V***-',
+      attribution_type: 'ATTRIBUTION_TYPE_CLIENT_ORDER_ID_PREFIX',
+      is_active: false,
+      lifecycle_status: 'VENUE_LIFECYCLE_STATUS_TERMINATED',
+      sunset_notice: 'Venue decommissioned by operator.',
+      version: 5,
+      rebate_percentage: 0.3,
+    };
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ config: mockConfig }),
+    } as Response);
+
+    const updated = await adminApi.updateBrokerConfig({
+      exchange: 'EXCHANGE_BINANCE_SPOT',
+      attributionType: 'ATTRIBUTION_TYPE_CLIENT_ORDER_ID_PREFIX',
+      rawIdentifier: 'x-VF-PROD',
+      status: 'BROKER_CONFIG_STATUS_INACTIVE',
+      lifecycleStatus: 'VENUE_LIFECYCLE_STATUS_TERMINATED',
+      rebateRateBps: 3000,
+      expectedVersion: 4,
+    });
+
+    expect(updated.lifecycleStatus).toBe('VENUE_LIFECYCLE_STATUS_TERMINATED');
+    expect(updated.version).toBe(5);
+
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('vf_admin_broker_configs');
+      expect(stored).not.toBeNull();
+      const parsed = JSON.parse(stored!);
+      const binance = parsed.find((c: any) => c.exchange === 'EXCHANGE_BINANCE_SPOT');
+      expect(binance?.lifecycleStatus).toBe('VENUE_LIFECYCLE_STATUS_TERMINATED');
+    }
   });
 });
