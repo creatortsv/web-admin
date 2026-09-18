@@ -41,12 +41,12 @@ interface ExchangeMeta {
   identifierPlaceholder: string;
   hasSecret: boolean;
   secretLabel?: string;
-  contactEmail: string;
+  contactEmail?: string;
   portalUrl: string;
   programName: string;
   description: string;
   onboardingSteps: string[];
-  emailTemplate: {
+  emailTemplate?: {
     subject: string;
     body: string;
   };
@@ -261,31 +261,18 @@ Venom Finance Team`,
     badgeBorder: 'border-teal-500/30',
     badgeText: 'text-teal-300',
     defaultAttribution: 'ATTRIBUTION_TYPE_BUILDER_FEE',
-    identifierLabel: 'Builder Fee Receiving Address (0x...)',
-    identifierPlaceholder: '0xYourColdMultiSigVault...',
+    identifierLabel: 'Builder EVM Recipient Address (0x...)',
+    identifierPlaceholder: '0xYourColdMultiSigVault42HexCharacters...',
     hasSecret: false,
-    contactEmail: 'founders@hyperliquid.xyz',
     portalUrl: 'https://app.hyperliquid.xyz/API',
     programName: 'Hyperliquid L1 Builder Fee (Permissionless)',
     description: 'Non-custodial on-chain protocol builder fee. Every order injects your builder address & bps directly into L1 state.',
     onboardingSteps: [
-      'No institutional BD approval needed! Hyperliquid Builder Fees are 100% permissionless on L1.',
-      'Deploy or specify your Gnosis Safe / multi-sig cold vault address on Ethereum/Arbitrum.',
-      'Set the fee in basis points (e.g. 10 bps = 0.10% or 1 bp = 0.01%).',
-      'Input the 0x address below and seal it. Every Hyperliquid order will automatically credit your address on-chain!',
+      'Zero Institutional BD Approval or KYC Required: Hyperliquid Builder Fees are 100% permissionless on L1.',
+      'Deploy or specify your Gnosis Safe / multi-sig cold vault address on Ethereum/Arbitrum (0x...).',
+      'Configure your protocol builder fee between 1 and 10 BPS (0.01% - 0.10%). 10 bps is the maximum fee allowed by Hyperliquid L1 consensus.',
+      'Input your 42-character EVM address below and click "Seal & Commit via Cloud KMS". Every order executed on Hyperliquid will automatically credit your address on-chain per block!',
     ],
-    emailTemplate: {
-      subject: 'Hyperliquid L1 Ecosystem Builder — Venom Finance',
-      body: `Hi Hyperliquid Team,
-
-Venom Finance has integrated native L1 trading agent wallets and builder fee routing.
-We are routing volume to Hyperliquid L1 perp and spot books with on-chain builder fees.
-
-Builder Address: [Enter your 0x address]
-Platform: Venom Finance (https://venom.finance)
-
-Excited to build on the Hyperliquid ecosystem!`,
-    },
   },
   EXCHANGE_GMX_V2: {
     key: 'EXCHANGE_GMX_V2',
@@ -297,30 +284,17 @@ Excited to build on the Hyperliquid ecosystem!`,
     badgeText: 'text-indigo-400',
     defaultAttribution: 'ATTRIBUTION_TYPE_REFERRAL_CODE',
     identifierLabel: 'On-Chain Referral Code / Affiliate Key',
-    identifierPlaceholder: 'e.g. venom or your created referral code',
+    identifierPlaceholder: 'e.g. venom or your registered referral code',
     hasSecret: false,
-    contactEmail: 'contact@gmx.io',
     portalUrl: 'https://app.gmx.io/#/referrals',
     programName: 'GMX v2 On-Chain Referral Program',
     description: 'Arbitrum smart contract referral code passed to GMX Exchange Router on order creation.',
     onboardingSteps: [
-      'Navigate to https://app.gmx.io/#/referrals with your Web3 wallet.',
-      'Create your unique on-chain affiliate referral code (e.g. "venom").',
-      'Enter the referral code below and seal it.',
-      'Orders placed through 1-Click Trading signers will automatically record on-chain fee rebates to your vault.',
+      'Open the GMX v2 Referrals dApp at https://app.gmx.io/#/referrals with your administrative Web3 wallet.',
+      'Register your on-chain affiliate referral code (e.g. "venom").',
+      'Input the referral code below and click "Seal & Commit via Cloud KMS".',
+      'Orders placed through delegated 1-Click Trading signers will automatically record on-chain fee rebates to your vault on Arbitrum.',
     ],
-    emailTemplate: {
-      subject: 'GMX v2 Integration Notice — Venom Finance',
-      body: `Hi GMX Community & Contributors,
-
-Venom Finance is integrating 1-Click Trading delegated session signers for GMX v2 on Arbitrum.
-We have registered on-chain referral code: [Your Referral Code]
-
-All user trades route through the official GMX v2 contracts.
-
-Best,
-Venom Finance Devs`,
-    },
   },
 };
 
@@ -340,6 +314,7 @@ export default function BrokerRebatesPage() {
   const [rebateRatePercent, setRebateRatePercent] = React.useState<number>(45);
   const [clientPrefix, setClientPrefix] = React.useState<string>('x-VF-');
   const [notes, setNotes] = React.useState('');
+  const [payoutAddress, setPayoutAddress] = React.useState('');
 
   // Sealing & Ephemeral RAM Memory Scrubbing
   const [isSealing, setIsSealing] = React.useState(false);
@@ -376,6 +351,7 @@ export default function BrokerRebatesPage() {
       setRebateRatePercent(activeConfig.rebateRateBps / 100);
       setNotes(activeConfig.notes || '');
       setClientPrefix(activeConfig.extraParams?.client_order_id_prefix || 'x-VF-');
+      setPayoutAddress(activeConfig.payoutAddress || '');
     } else {
       setRawIdentifier('');
       setRawSecret('');
@@ -384,6 +360,7 @@ export default function BrokerRebatesPage() {
       setRebateRatePercent(meta.key === 'EXCHANGE_HYPERLIQUID' ? 0.1 : 30);
       setNotes('');
       setClientPrefix('x-VF-');
+      setPayoutAddress('');
     }
     setTestResult(null);
     setSealSuccess(false);
@@ -419,6 +396,7 @@ export default function BrokerRebatesPage() {
   };
 
   const handleCopyTemplate = () => {
+    if (!meta.emailTemplate) return;
     navigator.clipboard.writeText(meta.emailTemplate.body);
     setCopiedTemplate(true);
     setTimeout(() => setCopiedTemplate(false), 2000);
@@ -426,9 +404,16 @@ export default function BrokerRebatesPage() {
 
   const handleSealAndCommit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!rawIdentifier && !activeConfig?.maskedIdentifier) {
+    if (!rawIdentifier && !activeConfig?.maskedIdentifier && !activeConfig?.payoutAddress) {
       alert('Please provide a partner identifier / key before sealing.');
       return;
+    }
+
+    if (selectedExchange === 'EXCHANGE_HYPERLIQUID') {
+      if (rawIdentifier && !/^0x[a-fA-F0-9]{40}$/.test(rawIdentifier.trim())) {
+        alert('Invalid EVM Address: Hyperliquid builder address must start with 0x followed by exactly 40 hex characters.');
+        return;
+      }
     }
 
     setIsSealing(true);
@@ -447,15 +432,54 @@ export default function BrokerRebatesPage() {
       setSealingStep(3);
 
       const extraParams: Record<string, string> = {};
-      if (clientPrefix) extraParams['client_order_id_prefix'] = clientPrefix;
+      let headerKey: string | undefined = undefined;
+      let headerValue: string | undefined = undefined;
+      let clientOrderIdPrefix: string | undefined = undefined;
+      let payoutAddressVal: string | undefined = undefined;
+
+      if (selectedExchange === 'EXCHANGE_HYPERLIQUID') {
+        const targetAddress = rawIdentifier || activeConfig?.payoutAddress || activeConfig?.maskedIdentifier || '';
+        const bps = Math.max(1, Math.min(10, Math.round(rebateRatePercent * 100)));
+        extraParams['builder'] = targetAddress;
+        extraParams['fee'] = String(bps);
+        payoutAddressVal = targetAddress;
+      } else if (selectedExchange === 'EXCHANGE_GMX_V2') {
+        const refCode = rawIdentifier || activeConfig?.maskedIdentifier || 'venom';
+        extraParams['referral_code'] = refCode;
+        if (payoutAddress) payoutAddressVal = payoutAddress;
+      } else if (selectedExchange === 'EXCHANGE_BINGX') {
+        headerKey = 'X-SOURCE-KEY';
+        headerValue = rawIdentifier || activeConfig?.maskedIdentifier || 'BX-AI-SKILL';
+        clientOrderIdPrefix = clientPrefix || 'x-VF-';
+        extraParams['client_order_id_prefix'] = clientOrderIdPrefix;
+      } else if (selectedExchange === 'EXCHANGE_BYBIT') {
+        clientOrderIdPrefix = rawIdentifier || activeConfig?.maskedIdentifier || 'x-VF-';
+        extraParams['referer'] = clientOrderIdPrefix;
+        extraParams['client_order_id_prefix'] = clientOrderIdPrefix;
+      } else {
+        // Binance Spot / Futures / Bitget
+        clientOrderIdPrefix = rawIdentifier || activeConfig?.maskedIdentifier || 'x-VF-';
+        extraParams['client_order_id_prefix'] = clientOrderIdPrefix;
+      }
 
       const updated = await adminApi.updateBrokerConfig({
+        id: activeConfig?.id,
         exchange: selectedExchange,
-        attributionType,
-        rawIdentifier: rawIdentifier || activeConfig?.maskedIdentifier || 'x-VF-',
+        attributionType: (selectedExchange === 'EXCHANGE_HYPERLIQUID'
+          ? 'ATTRIBUTION_TYPE_BUILDER_FEE'
+          : selectedExchange === 'EXCHANGE_GMX_V2'
+          ? 'ATTRIBUTION_TYPE_REFERRAL_CODE'
+          : attributionType),
+        rawIdentifier: rawIdentifier || activeConfig?.maskedIdentifier || (selectedExchange === 'EXCHANGE_HYPERLIQUID' ? '0x0000000000000000000000000000000000000000' : 'x-VF-'),
         rawSecret: rawSecret || undefined,
         status,
         rebateRateBps: Math.round(rebateRatePercent * 100),
+        rebatePercentage: rebateRatePercent,
+        clientOrderIdPrefix,
+        headerKey,
+        headerValue,
+        payloadParams: extraParams,
+        payoutAddress: payoutAddressVal,
         expectedVersion: activeConfig?.version || 0,
         notes,
         extraParams,
@@ -708,7 +732,7 @@ export default function BrokerRebatesPage() {
                 }`}
               >
                 <BookOpen className="h-4 w-4" />
-                Venue Onboarding & BD Template
+                {meta.category === 'DEX' ? 'Protocol Architecture' : 'Venue Onboarding & BD Template'}
               </button>
             </div>
           </div>
@@ -720,7 +744,7 @@ export default function BrokerRebatesPage() {
                 <div>
                   <h3 className="text-base font-bold text-white font-mono flex items-center gap-2">
                     <Lock className="h-4 w-4 text-rose-400" />
-                    Cloud KMS Envelope Sealing Form
+                    {meta.category === 'DEX' ? `${meta.displayName} Governance Form` : 'Cloud KMS Envelope Sealing Form'}
                   </h3>
                   <p className="text-xs text-slate-400 mt-0.5">
                     Sealed with AES-256-GCM using authenticated context <code className="text-rose-400">scope:broker_config:{selectedExchange.toLowerCase()}</code>.
@@ -734,142 +758,334 @@ export default function BrokerRebatesPage() {
                 )}
               </div>
 
-              {/* Attribution Type Radio/Select */}
-              <div>
-                <label className="block text-xs font-mono uppercase tracking-wider text-slate-300 mb-2">
-                  Attribution Mechanism
-                </label>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                  {[
-                    { type: 'ATTRIBUTION_TYPE_SOURCE_KEY_HEADER', title: 'HTTP Header (X-SOURCE-KEY)', desc: 'BingX, OKX' },
-                    { type: 'ATTRIBUTION_TYPE_CLIENT_ORDER_ID_PREFIX', title: 'Client Order ID Prefix', desc: 'Binance Link, Bybit orderLinkId' },
-                    { type: 'ATTRIBUTION_TYPE_BUILDER_FEE', title: 'On-Chain Builder Fee', desc: 'Hyperliquid L1 consensus rebate' },
-                    { type: 'ATTRIBUTION_TYPE_REFERRAL_CODE', title: 'Channel / Referral Code', desc: 'GMX v2, Bitget' },
-                  ].map((mech) => {
-                    const checked = attributionType === mech.type;
-                    return (
-                      <div
-                        key={mech.type}
-                        onClick={() => setAttributionType(mech.type as AttributionType)}
-                        className={`p-3 rounded-xl border cursor-pointer transition-all ${
-                          checked
-                            ? 'bg-rose-500/10 border-rose-500/40 text-rose-300 shadow-[0_0_15px_rgba(239,68,68,0.1)]'
-                            : 'bg-[#05070D] border-slate-800 text-slate-300 hover:border-slate-700'
-                        }`}
-                      >
-                        <div className="font-mono text-xs font-bold">{mech.title}</div>
-                        <div className="text-[11px] text-slate-400 mt-0.5">{mech.desc}</div>
+              {/* Hyperliquid Specialized Section */}
+              {selectedExchange === 'EXCHANGE_HYPERLIQUID' ? (
+                <div className="space-y-5">
+                  <div className="p-3.5 rounded-xl bg-teal-500/10 border border-teal-500/30 text-teal-300 text-xs flex items-start gap-3">
+                    <CheckCircle2 className="h-5 w-5 text-teal-400 shrink-0 mt-0.5" />
+                    <div>
+                      <div className="font-bold font-mono">100% Permissionless On-Chain Settlement</div>
+                      <div className="text-[11px] text-teal-300/80 mt-0.5 leading-relaxed">
+                        Hyperliquid requires zero institutional applications, zero BD email approvals, and zero KYC. 
+                        Builder fees are attributed atomically on L1 per block directly to your EVM address.
                       </div>
-                    );
-                  })}
-                </div>
-              </div>
+                    </div>
+                  </div>
 
-              {/* Primary Identifier Input */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-xs font-mono uppercase tracking-wider text-slate-300">
-                    {meta.identifierLabel} <span className="text-rose-400">*</span>
-                  </label>
-                  {activeConfig?.maskedIdentifier && (
-                    <span className="text-[11px] font-mono text-slate-400">
-                      Currently Sealed: <code className="text-emerald-400 font-bold">{activeConfig.maskedIdentifier}</code> (v{activeConfig.version})
-                    </span>
-                  )}
-                </div>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={rawIdentifier}
-                    onChange={(e) => setRawIdentifier(e.target.value)}
-                    placeholder={activeConfig?.maskedIdentifier ? `Keep current (${activeConfig.maskedIdentifier}) or enter new...` : meta.identifierPlaceholder}
-                    className="w-full bg-[#05070D] border border-slate-800 rounded-xl px-4 py-3 text-sm text-white font-mono placeholder:text-slate-600 focus:outline-none focus:border-rose-500 transition-colors"
-                  />
-                </div>
-              </div>
+                  {/* Builder Address Input */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-xs font-mono uppercase tracking-wider text-slate-300">
+                        Builder EVM Recipient Address (0x...) <span className="text-rose-400">*</span>
+                      </label>
+                      {activeConfig?.payoutAddress && (
+                        <span className="text-[11px] font-mono text-slate-400">
+                          Active Vault: <code className="text-emerald-400 font-bold">{activeConfig.payoutAddress}</code>
+                        </span>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={rawIdentifier}
+                        onChange={(e) => setRawIdentifier(e.target.value)}
+                        placeholder={activeConfig?.payoutAddress || activeConfig?.maskedIdentifier || '0xYourColdMultiSigVault42HexCharacters...'}
+                        className={`w-full bg-[#05070D] border rounded-xl px-4 py-3 text-sm text-white font-mono placeholder:text-slate-600 focus:outline-none transition-colors ${
+                          rawIdentifier
+                            ? /^0x[a-fA-F0-9]{40}$/.test(rawIdentifier.trim())
+                              ? 'border-emerald-500/60 focus:border-emerald-500'
+                              : 'border-rose-500/60 focus:border-rose-500'
+                            : 'border-slate-800 focus:border-rose-500'
+                        }`}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] font-mono mt-1.5">
+                      {rawIdentifier ? (
+                        /^0x[a-fA-F0-9]{40}$/.test(rawIdentifier.trim()) ? (
+                          <span className="text-emerald-400 flex items-center gap-1">
+                            <Check className="h-3 w-3" /> Valid 42-character EVM address format
+                          </span>
+                        ) : (
+                          <span className="text-rose-400 flex items-center gap-1">
+                            <AlertTriangle className="h-3 w-3" /> Must start with 0x followed by exactly 40 hex characters
+                          </span>
+                        )
+                      ) : (
+                        <span className="text-slate-500">
+                          EVM-compatible multisig address (e.g. Gnosis Safe on Ethereum/Arbitrum)
+                        </span>
+                      )}
+                    </div>
+                  </div>
 
-              {/* Optional Secret Input */}
-              {meta.hasSecret && (
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-xs font-mono uppercase tracking-wider text-slate-300">
-                      {meta.secretLabel || 'Partner Secret'}
+                  {/* Hyperliquid Builder Fee Slider & BPS Input */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-xs font-mono uppercase tracking-wider text-slate-300">
+                        Hyperliquid Protocol Builder Fee (BPS)
+                      </label>
+                      <span className="text-xs font-mono text-teal-400 font-bold bg-teal-500/10 px-2.5 py-1 rounded-lg border border-teal-500/20">
+                        {Math.max(1, Math.min(10, Math.round(rebateRatePercent * 100)))} BPS ({(Math.max(1, Math.min(10, Math.round(rebateRatePercent * 100))) / 100).toFixed(2)}%)
+                      </span>
+                    </div>
+                    <div className="space-y-3">
+                      <input
+                        type="range"
+                        min="1"
+                        max="10"
+                        step="1"
+                        value={Math.max(1, Math.min(10, Math.round(rebateRatePercent * 100)))}
+                        onChange={(e) => setRebateRatePercent(parseInt(e.target.value, 10) / 100)}
+                        className="w-full accent-teal-400 h-2 bg-slate-800 rounded-lg cursor-pointer"
+                      />
+                      <div className="flex justify-between text-[11px] font-mono text-slate-500">
+                        <span>1 BPS (0.01%)</span>
+                        <span>5 BPS (0.05%)</span>
+                        <span className="text-amber-400">10 BPS Max (0.10%)</span>
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-2 leading-relaxed">
+                      Hyperliquid L1 consensus strictly enforces a maximum builder fee of 10 bps (0.10%). 
+                      Higher fees are rejected at the validator consensus level.
+                    </p>
+                  </div>
+
+                  {/* Vault Notes */}
+                  <div>
+                    <label className="block text-xs font-mono uppercase tracking-wider text-slate-300 mb-1.5">
+                      Cold Storage Vault Identifier / Governance Label
                     </label>
-                  </div>
-                  <div className="relative">
                     <input
-                      type={showSecret ? 'text' : 'password'}
-                      value={rawSecret}
-                      onChange={(e) => setRawSecret(e.target.value)}
-                      placeholder="Leave blank to keep existing secret untouched"
-                      className="w-full bg-[#05070D] border border-slate-800 rounded-xl px-4 py-3 text-sm text-white font-mono placeholder:text-slate-600 focus:outline-none focus:border-rose-500 transition-colors pr-12"
+                      type="text"
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      placeholder="e.g. Treasury Multi-Sig 3/5 Arbitrum"
+                      className="w-full bg-[#05070D] border border-slate-800 rounded-xl px-4 py-3 text-sm text-white font-mono placeholder:text-slate-600 focus:outline-none focus:border-rose-500 transition-colors"
                     />
-                    <button
-                      type="button"
-                      onClick={() => setShowSecret(!showSecret)}
-                      className="absolute right-3.5 top-3.5 text-slate-400 hover:text-white"
-                    >
-                      {showSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
+                  </div>
+                </div>
+              ) : selectedExchange === 'EXCHANGE_GMX_V2' ? (
+                /* GMX v2 Specialized Section */
+                <div className="space-y-5">
+                  <div className="p-3.5 rounded-xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 text-xs flex items-start gap-3">
+                    <CheckCircle2 className="h-5 w-5 text-indigo-400 shrink-0 mt-0.5" />
+                    <div>
+                      <div className="font-bold font-mono">Arbitrum Smart Contract Referral Integration</div>
+                      <div className="text-[11px] text-indigo-300/80 mt-0.5 leading-relaxed">
+                        GMX v2 referral codes are passed directly into the GMX Exchange Router on Arbitrum. 
+                        Rebates accumulate to your registered on-chain referral vault without manual broker agreements.
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Referral Code Input */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-xs font-mono uppercase tracking-wider text-slate-300">
+                        On-Chain Referral Code <span className="text-rose-400">*</span>
+                      </label>
+                      {activeConfig?.maskedIdentifier && (
+                        <span className="text-[11px] font-mono text-slate-400">
+                          Active Code: <code className="text-emerald-400 font-bold">{activeConfig.maskedIdentifier}</code>
+                        </span>
+                      )}
+                    </div>
+                    <input
+                      type="text"
+                      value={rawIdentifier}
+                      onChange={(e) => setRawIdentifier(e.target.value)}
+                      placeholder={activeConfig?.maskedIdentifier || 'e.g. venom'}
+                      className="w-full bg-[#05070D] border border-slate-800 rounded-xl px-4 py-3 text-sm text-white font-mono placeholder:text-slate-600 focus:outline-none focus:border-rose-500 transition-colors"
+                    />
+                  </div>
+
+                  {/* Payout Vault Address */}
+                  <div>
+                    <label className="block text-xs font-mono uppercase tracking-wider text-slate-300 mb-1.5">
+                      Arbitrum Fee Recipient Vault (Optional 0x...)
+                    </label>
+                    <input
+                      type="text"
+                      value={payoutAddress}
+                      onChange={(e) => setPayoutAddress(e.target.value)}
+                      placeholder="0xYourArbitrumVaultAddress..."
+                      className="w-full bg-[#05070D] border border-slate-800 rounded-xl px-4 py-3 text-sm text-white font-mono placeholder:text-slate-600 focus:outline-none focus:border-rose-500 transition-colors"
+                    />
+                  </div>
+
+                  {/* Rebate Percentage & Notes */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-mono uppercase tracking-wider text-slate-300 mb-1.5">
+                        Tier Rebate Rate (%)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          max="100"
+                          value={rebateRatePercent}
+                          onChange={(e) => setRebateRatePercent(parseFloat(e.target.value) || 0)}
+                          className="w-full bg-[#05070D] border border-slate-800 rounded-xl px-4 py-3 text-sm text-white font-mono focus:outline-none focus:border-rose-500 transition-colors pr-10"
+                        />
+                        <span className="absolute right-4 top-3.5 text-sm font-mono text-slate-400">%</span>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-mono uppercase tracking-wider text-slate-300 mb-1.5">
+                        Affiliate Notes
+                      </label>
+                      <input
+                        type="text"
+                        value={notes}
+                        onChange={(e) => setNotes(e.target.value)}
+                        placeholder="e.g. Tier 2 Partner Link"
+                        className="w-full bg-[#05070D] border border-slate-800 rounded-xl px-4 py-3 text-sm text-white font-mono placeholder:text-slate-600 focus:outline-none focus:border-rose-500 transition-colors"
+                      />
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* Standard CEX Section (BingX, Binance, Bybit, Bitget) */
+                <div className="space-y-6">
+                  {/* Attribution Type Radio/Select */}
+                  <div>
+                    <label className="block text-xs font-mono uppercase tracking-wider text-slate-300 mb-2">
+                      Attribution Mechanism
+                    </label>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                      {[
+                        { type: 'ATTRIBUTION_TYPE_SOURCE_KEY_HEADER', title: 'HTTP Header (X-SOURCE-KEY)', desc: 'BingX, OKX' },
+                        { type: 'ATTRIBUTION_TYPE_CLIENT_ORDER_ID_PREFIX', title: 'Client Order ID Prefix', desc: 'Binance Link, Bybit orderLinkId' },
+                        { type: 'ATTRIBUTION_TYPE_REFERRAL_CODE', title: 'Channel / Referral Code', desc: 'Bitget, OKX Broker' },
+                      ].map((mech) => {
+                        const checked = attributionType === mech.type;
+                        return (
+                          <div
+                            key={mech.type}
+                            onClick={() => setAttributionType(mech.type as AttributionType)}
+                            className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                              checked
+                                ? 'bg-rose-500/10 border-rose-500/40 text-rose-300 shadow-[0_0_15px_rgba(239,68,68,0.1)]'
+                                : 'bg-[#05070D] border-slate-800 text-slate-300 hover:border-slate-700'
+                            }`}
+                          >
+                            <div className="font-mono text-xs font-bold">{mech.title}</div>
+                            <div className="text-[11px] text-slate-400 mt-0.5">{mech.desc}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Primary Identifier Input */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-xs font-mono uppercase tracking-wider text-slate-300">
+                        {meta.identifierLabel} <span className="text-rose-400">*</span>
+                      </label>
+                      {activeConfig?.maskedIdentifier && (
+                        <span className="text-[11px] font-mono text-slate-400">
+                          Currently Sealed: <code className="text-emerald-400 font-bold">{activeConfig.maskedIdentifier}</code> (v{activeConfig.version})
+                        </span>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={rawIdentifier}
+                        onChange={(e) => setRawIdentifier(e.target.value)}
+                        placeholder={activeConfig?.maskedIdentifier ? `Keep current (${activeConfig.maskedIdentifier}) or enter new...` : meta.identifierPlaceholder}
+                        className="w-full bg-[#05070D] border border-slate-800 rounded-xl px-4 py-3 text-sm text-white font-mono placeholder:text-slate-600 focus:outline-none focus:border-rose-500 transition-colors"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Optional Secret Input */}
+                  {meta.hasSecret && (
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="text-xs font-mono uppercase tracking-wider text-slate-300">
+                          {meta.secretLabel || 'Partner Secret'}
+                        </label>
+                      </div>
+                      <div className="relative">
+                        <input
+                          type={showSecret ? 'text' : 'password'}
+                          value={rawSecret}
+                          onChange={(e) => setRawSecret(e.target.value)}
+                          placeholder="Leave blank to keep existing secret untouched"
+                          className="w-full bg-[#05070D] border border-slate-800 rounded-xl px-4 py-3 text-sm text-white font-mono placeholder:text-slate-600 focus:outline-none focus:border-rose-500 transition-colors pr-12"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowSecret(!showSecret)}
+                          className="absolute right-3.5 top-3.5 text-slate-400 hover:text-white"
+                        >
+                          {showSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Secondary Client Order ID Prefix for BingX */}
+                  {attributionType === 'ATTRIBUTION_TYPE_SOURCE_KEY_HEADER' && (
+                    <div>
+                      <label className="block text-xs font-mono uppercase tracking-wider text-slate-300 mb-1.5">
+                        Dual-Attribution Client Order ID Prefix
+                      </label>
+                      <input
+                        type="text"
+                        value={clientPrefix}
+                        onChange={(e) => setClientPrefix(e.target.value)}
+                        placeholder="e.g. x-VF-"
+                        className="w-full bg-[#05070D] border border-slate-800 rounded-xl px-4 py-3 text-sm text-white font-mono placeholder:text-slate-600 focus:outline-none focus:border-rose-500 transition-colors"
+                      />
+                      <p className="text-[11px] text-slate-500 mt-1">
+                        BingX allows both HTTP Header (X-SOURCE-KEY) and Client Order ID prefixing for redundant rebate tracking.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Rebate Percentage & Notes */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-mono uppercase tracking-wider text-slate-300 mb-1.5">
+                        Platform Revenue Share / Rebate Rate (%)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          max="100"
+                          value={rebateRatePercent}
+                          onChange={(e) => setRebateRatePercent(parseFloat(e.target.value) || 0)}
+                          className="w-full bg-[#05070D] border border-slate-800 rounded-xl px-4 py-3 text-sm text-white font-mono focus:outline-none focus:border-rose-500 transition-colors pr-10"
+                        />
+                        <span className="absolute right-4 top-3.5 text-sm font-mono text-slate-400">%</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-1">
+                        Equivalent to {Math.round(rebateRatePercent * 100)} basis points (bps).
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-mono uppercase tracking-wider text-slate-300 mb-1.5">
+                        Administrative Notes / BD Reference
+                      </label>
+                      <input
+                        type="text"
+                        value={notes}
+                        onChange={(e) => setNotes(e.target.value)}
+                        placeholder="e.g. Agreement ID, BD rep name, signed date"
+                        className="w-full bg-[#05070D] border border-slate-800 rounded-xl px-4 py-3 text-sm text-white font-mono placeholder:text-slate-600 focus:outline-none focus:border-rose-500 transition-colors"
+                      />
+                    </div>
                   </div>
                 </div>
               )}
-
-              {/* Secondary Client Order ID Prefix for BingX / Bybit */}
-              {attributionType === 'ATTRIBUTION_TYPE_SOURCE_KEY_HEADER' && (
-                <div>
-                  <label className="block text-xs font-mono uppercase tracking-wider text-slate-300 mb-1.5">
-                    Dual-Attribution Client Order ID Prefix
-                  </label>
-                  <input
-                    type="text"
-                    value={clientPrefix}
-                    onChange={(e) => setClientPrefix(e.target.value)}
-                    placeholder="e.g. x-VF-"
-                    className="w-full bg-[#05070D] border border-slate-800 rounded-xl px-4 py-3 text-sm text-white font-mono placeholder:text-slate-600 focus:outline-none focus:border-rose-500 transition-colors"
-                  />
-                  <p className="text-[11px] text-slate-500 mt-1">
-                    BingX allows both HTTP Header (X-SOURCE-KEY) and Client Order ID prefixing for redundant rebate tracking.
-                  </p>
-                </div>
-              )}
-
-              {/* Rebate Percentage & Notes */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-mono uppercase tracking-wider text-slate-300 mb-1.5">
-                    Platform Revenue Share / Rebate Rate (%)
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      max="100"
-                      value={rebateRatePercent}
-                      onChange={(e) => setRebateRatePercent(parseFloat(e.target.value) || 0)}
-                      className="w-full bg-[#05070D] border border-slate-800 rounded-xl px-4 py-3 text-sm text-white font-mono focus:outline-none focus:border-rose-500 transition-colors pr-10"
-                    />
-                    <span className="absolute right-4 top-3.5 text-sm font-mono text-slate-400">%</span>
-                  </div>
-                  <p className="text-[11px] text-slate-500 mt-1">
-                    Equivalent to {Math.round(rebateRatePercent * 100)} basis points (bps).
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-mono uppercase tracking-wider text-slate-300 mb-1.5">
-                    Administrative Notes / BD Reference
-                  </label>
-                  <input
-                    type="text"
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    placeholder="e.g. Agreement ID, BD rep name, signed date"
-                    className="w-full bg-[#05070D] border border-slate-800 rounded-xl px-4 py-3 text-sm text-white font-mono placeholder:text-slate-600 focus:outline-none focus:border-rose-500 transition-colors"
-                  />
-                </div>
-              </div>
 
               {/* Sealing Status Feedback */}
               {isSealing && (
@@ -1013,17 +1229,19 @@ export default function BrokerRebatesPage() {
             </div>
           )}
 
-          {/* TAB 3: VENUE ONBOARDING GUIDE & PRE-FILLED BD APPLICATION EMAIL */}
+          {/* TAB 3: VENUE ONBOARDING & PROTOCOL ARCHITECTURE */}
           {activeTab === 'ONBOARDING' && (
             <div className="bg-[#0B0F19] border border-slate-800/90 rounded-2xl p-6 space-y-6">
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-base font-bold text-white font-mono flex items-center gap-2">
                     <BookOpen className="h-4 w-4 text-rose-400" />
-                    {meta.programName} Onboarding
+                    {meta.category === 'DEX' ? `${meta.displayName} Protocol Architecture` : `${meta.programName} Onboarding`}
                   </h3>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    Step-by-step guidance for activating broker revenue-sharing for {meta.displayName}.
+                    {meta.category === 'DEX'
+                      ? `Non-custodial on-chain trade attribution and settlement rules for ${meta.displayName}.`
+                      : `Step-by-step guidance for activating broker revenue-sharing for ${meta.displayName}.`}
                   </p>
                 </div>
                 <a
@@ -1040,7 +1258,7 @@ export default function BrokerRebatesPage() {
               {/* Step Checklist */}
               <div className="space-y-3">
                 <div className="text-xs font-mono uppercase tracking-wider text-slate-300">
-                  Execution Checklist
+                  {meta.category === 'DEX' ? 'Integration Invariants' : 'Execution Checklist'}
                 </div>
                 <div className="space-y-2">
                   {meta.onboardingSteps.map((step, idx) => (
@@ -1054,36 +1272,107 @@ export default function BrokerRebatesPage() {
                 </div>
               </div>
 
-              {/* Pre-filled Email Application Template */}
-              <div className="space-y-2.5">
-                <div className="flex items-center justify-between">
+              {/* Conditional Rendering: DEX Protocol Architecture vs CEX BD Email Template */}
+              {meta.category === 'DEX' ? (
+                <div className="space-y-4">
                   <div className="text-xs font-mono uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
-                    <Send className="h-3.5 w-3.5 text-rose-400" />
-                    Pre-filled Institutional Application Template
+                    <Server className="h-3.5 w-3.5 text-teal-400" />
+                    On-Chain Execution Architecture (Zero-BD / No Emails)
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleCopyTemplate}
-                    className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] font-mono text-slate-300 hover:text-white flex items-center gap-1.5 transition-colors border border-slate-700/60"
-                  >
-                    {copiedTemplate ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
-                    <span>{copiedTemplate ? 'Copied' : 'Copy Email Body'}</span>
-                  </button>
-                </div>
 
-                <div className="bg-[#05070D] border border-slate-800 rounded-xl p-4 font-mono text-xs space-y-2">
-                  <div className="text-slate-400">
-                    <span className="text-slate-500">To:</span> <code className="text-rose-400">{meta.contactEmail}</code>
-                  </div>
-                  <div className="text-slate-400">
-                    <span className="text-slate-500">Subject:</span> <span className="text-white">{meta.emailTemplate.subject}</span>
-                  </div>
-                  <hr className="border-slate-800" />
-                  <pre className="text-slate-300 whitespace-pre-wrap leading-relaxed font-sans text-xs max-h-56 overflow-y-auto">
-                    {meta.emailTemplate.body}
-                  </pre>
+                  {selectedExchange === 'EXCHANGE_HYPERLIQUID' ? (
+                    <div className="bg-[#05070D] border border-slate-800 rounded-xl p-5 font-mono text-xs space-y-3">
+                      <div className="text-teal-300 font-bold text-sm flex items-center gap-2">
+                        <CheckCircle2 className="h-4 w-4 text-teal-400" />
+                        Hyperliquid L1 EIP-712 Builder Fee Consensus Rules
+                      </div>
+                      <p className="text-slate-300 leading-relaxed text-xs font-sans">
+                        When placing orders on Hyperliquid L1, the order action payload includes a signed builder fee attribute. 
+                        The L1 consensus layer automatically deducts the fee and transfers USDC atomically to your cold vault address on block finality.
+                      </p>
+                      <div className="bg-slate-950 p-3.5 rounded-lg border border-slate-800 text-slate-300 text-[11px] overflow-x-auto">
+                        <div className="text-slate-500 mb-1">// Injected Order Payload sent to Hyperliquid L1:</div>
+                        <pre className="text-sky-300">{`{
+  "type": "order",
+  "orders": [
+    {
+      "a": 0, // asset index
+      "b": true, // isBuy
+      "p": "62500.0", // limit price
+      "s": "0.1", // size
+      "r": false, // reduceOnly
+      "t": { "limit": { "tif": "Gtc" } }
+    }
+  ],
+  "grouping": "na",
+  "builder": {
+    "b": "${activeConfig?.payoutAddress || '0xYourColdMultiSigVault42HexCharacters...'}", // 42-char recipient EVM address
+    "f": ${Math.max(1, Math.min(10, Math.round(rebateRatePercent * 100)))} // Builder fee in BPS (1-10 max)
+  }
+}`}</pre>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-[#05070D] border border-slate-800 rounded-xl p-5 font-mono text-xs space-y-3">
+                      <div className="text-indigo-300 font-bold text-sm flex items-center gap-2">
+                        <CheckCircle2 className="h-4 w-4 text-indigo-400" />
+                        GMX v2 Arbitrum Router Referral Architecture
+                      </div>
+                      <p className="text-slate-300 leading-relaxed text-xs font-sans">
+                        Order creation calls the GMX v2 ExchangeRouter contract on Arbitrum One. The registered referral code is embedded in the multicall order parameters:
+                      </p>
+                      <div className="bg-slate-950 p-3.5 rounded-lg border border-slate-800 text-slate-300 text-[11px] overflow-x-auto">
+                        <div className="text-slate-500 mb-1">// Multicall Order Creation with Referral Tracking:</div>
+                        <pre className="text-indigo-300">{`exchangeRouter.createOrder({
+  addresses: {
+    receiver: userSubaccountAddress,
+    callbackContract: address(0),
+    uiFeeReceiver: address(0),
+    market: btcUsdMarketAddress,
+    initialCollateralToken: usdcAddress
+  },
+  numbers: { ... },
+  orderType: OrderType.MarketIncrease,
+  decreasePositionSwapType: DecreasePositionSwapType.NoSwap,
+  isLong: true,
+  shouldUnwrapNativeToken: false,
+  referralCode: bytes32("${activeConfig?.maskedIdentifier || 'venom'}") // On-Chain Affiliate Code
+})`}</pre>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
+              ) : meta.emailTemplate ? (
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs font-mono uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                      <Send className="h-3.5 w-3.5 text-rose-400" />
+                      Pre-filled Institutional Application Template
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleCopyTemplate}
+                      className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] font-mono text-slate-300 hover:text-white flex items-center gap-1.5 transition-colors border border-slate-700/60"
+                    >
+                      {copiedTemplate ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                      <span>{copiedTemplate ? 'Copied' : 'Copy Email Body'}</span>
+                    </button>
+                  </div>
+
+                  <div className="bg-[#05070D] border border-slate-800 rounded-xl p-4 font-mono text-xs space-y-2">
+                    <div className="text-slate-400">
+                      <span className="text-slate-500">To:</span> <code className="text-rose-400">{meta.contactEmail}</code>
+                    </div>
+                    <div className="text-slate-400">
+                      <span className="text-slate-500">Subject:</span> <span className="text-white">{meta.emailTemplate.subject}</span>
+                    </div>
+                    <hr className="border-slate-800" />
+                    <pre className="text-slate-300 whitespace-pre-wrap leading-relaxed font-sans text-xs max-h-56 overflow-y-auto">
+                      {meta.emailTemplate.body}
+                    </pre>
+                  </div>
+                </div>
+              ) : null}
             </div>
           )}
         </div>

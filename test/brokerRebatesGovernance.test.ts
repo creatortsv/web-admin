@@ -68,6 +68,42 @@ describe('Broker & Rebate Governance API', () => {
     expect(res.attributionLatencyNanos).toBeLessThan(1000); // <1000 ns = <1μs
   });
 
+  it('updates and seals Hyperliquid builder fee config with EVM address and BPS limits', async () => {
+    const evmAddress = '0x1122334455667788990011223344556677889900';
+    const updated = await adminApi.updateBrokerConfig({
+      exchange: 'EXCHANGE_HYPERLIQUID',
+      attributionType: 'ATTRIBUTION_TYPE_BUILDER_FEE',
+      rawIdentifier: evmAddress,
+      payoutAddress: evmAddress,
+      status: 'BROKER_CONFIG_STATUS_ACTIVE',
+      rebateRateBps: 10, // 10 bps (0.10% protocol max)
+      rebatePercentage: 0.1,
+      expectedVersion: 1,
+      notes: 'Cold Multisig 3/5 Arbitrum Vault',
+      extraParams: { builder: evmAddress, fee: '10' },
+    });
+
+    expect(updated.exchange).toBe('EXCHANGE_HYPERLIQUID');
+    expect(updated.attributionType).toBe('ATTRIBUTION_TYPE_BUILDER_FEE');
+    expect(updated.payoutAddress).toBe(evmAddress);
+    expect(updated.rebateRateBps).toBe(10);
+    expect(updated.extraParams?.['builder']).toBe(evmAddress);
+    expect(updated.extraParams?.['fee']).toBe('10');
+    expect(updated.isKmsSealed).toBe(true);
+  });
+
+  it('executes Hyperliquid dry-run attribution ping validating on-chain builder parameters', async () => {
+    const res = await adminApi.testBrokerAttribution({
+      exchange: 'EXCHANGE_HYPERLIQUID',
+      testOrderId: 'HL-ORD-776655',
+    });
+
+    expect(res.success).toBe(true);
+    expect(res.injectedParams['builder']).toBeDefined();
+    expect(res.injectedParams['fee']).toBe('10');
+    expect(res.attributionLatencyNanos).toBeLessThan(1000); // <1μs SLA
+  });
+
   it('retrieves public exchange configs with Cloud NAT egress IPs', async () => {
     const publicConfigs = await adminApi.getPublicExchangeConfigs();
     expect(publicConfigs.length).toBeGreaterThanOrEqual(7);

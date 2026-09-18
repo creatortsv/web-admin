@@ -172,12 +172,20 @@ export type BrokerConfigStatus =
   | 'BROKER_CONFIG_STATUS_INACTIVE';
 
 export interface BrokerConfigDTO {
+  id?: string;
   exchange: ExchangeKey;
+  environment?: string;
   attributionType: AttributionType;
   status: BrokerConfigStatus;
   maskedIdentifier: string;
   isKmsSealed: boolean;
   rebateRateBps: number;
+  rebatePercentage?: number;
+  clientOrderIdPrefix?: string;
+  headerKey?: string;
+  headerValue?: string;
+  payloadParams?: Record<string, string>;
+  payoutAddress?: string;
   version: number;
   updatedAt: string;
   updatedBy: string;
@@ -186,10 +194,18 @@ export interface BrokerConfigDTO {
 }
 
 export interface UpdateBrokerConfigRequest {
+  id?: string;
   exchange: ExchangeKey;
+  environment?: string;
   attributionType: AttributionType;
   rawIdentifier: string;
   rawSecret?: string;
+  clientOrderIdPrefix?: string;
+  headerKey?: string;
+  headerValue?: string;
+  payloadParams?: Record<string, string>;
+  rebatePercentage?: number;
+  payoutAddress?: string;
   status: BrokerConfigStatus;
   rebateRateBps: number;
   expectedVersion: number;
@@ -956,10 +972,32 @@ export const adminApi = {
   // Broker & Rebate Governance Methods
   getBrokerConfigs: async (): Promise<BrokerConfigDTO[]> => {
     try {
-      const res = await adminFetch('/v1/broker/configs');
+      const res = await adminFetch('/v1/admin/broker-configs');
       if (res.ok) {
         const data = await res.json();
-        if (data.configs) return data.configs;
+        if (data.configs && Array.isArray(data.configs)) {
+          return data.configs.map((c: any) => ({
+            id: c.id,
+            exchange: (c.exchange?.toUpperCase().startsWith('EXCHANGE_') ? c.exchange : `EXCHANGE_${c.exchange?.toUpperCase()}`) as ExchangeKey,
+            environment: c.environment || 'production',
+            attributionType: (c.attribution_type || 'ATTRIBUTION_TYPE_CLIENT_ORDER_ID_PREFIX') as AttributionType,
+            status: (c.is_active ? 'BROKER_CONFIG_STATUS_ACTIVE' : 'BROKER_CONFIG_STATUS_INACTIVE') as BrokerConfigStatus,
+            maskedIdentifier: c.masked_identifier || '***',
+            isKmsSealed: c.has_encrypted_secrets ?? true,
+            rebateRateBps: Math.round((c.rebate_percentage || 0) * 100),
+            rebatePercentage: c.rebate_percentage,
+            clientOrderIdPrefix: c.client_order_id_prefix,
+            headerKey: c.header_key,
+            headerValue: c.header_value,
+            payloadParams: c.payload_params,
+            payoutAddress: c.payout_address,
+            version: c.version || 1,
+            updatedAt: c.updated_at ? (typeof c.updated_at === 'string' ? c.updated_at : new Date(c.updated_at.seconds * 1000).toISOString()) : new Date().toISOString(),
+            updatedBy: c.updated_by || 'system',
+            notes: c.notes || '',
+            extraParams: c.payload_params || {},
+          }));
+        }
       }
     } catch {
       // Fallback for standalone dev
@@ -973,11 +1011,35 @@ export const adminApi = {
   },
 
   getBrokerConfig: async (exchange: ExchangeKey): Promise<BrokerConfigDTO | null> => {
+    const exchangeSlug = exchange.replace(/^EXCHANGE_/, '').toLowerCase();
     try {
-      const res = await adminFetch(`/v1/broker/configs/${encodeURIComponent(exchange)}`);
+      const res = await adminFetch(`/v1/admin/broker-configs/${encodeURIComponent(exchangeSlug)}`);
       if (res.ok) {
         const data = await res.json();
-        if (data.config) return data.config;
+        if (data.config) {
+          const c = data.config;
+          return {
+            id: c.id,
+            exchange: (c.exchange?.toUpperCase().startsWith('EXCHANGE_') ? c.exchange : `EXCHANGE_${c.exchange?.toUpperCase()}`) as ExchangeKey,
+            environment: c.environment || 'production',
+            attributionType: (c.attribution_type || 'ATTRIBUTION_TYPE_CLIENT_ORDER_ID_PREFIX') as AttributionType,
+            status: (c.is_active ? 'BROKER_CONFIG_STATUS_ACTIVE' : 'BROKER_CONFIG_STATUS_INACTIVE') as BrokerConfigStatus,
+            maskedIdentifier: c.masked_identifier || '***',
+            isKmsSealed: c.has_encrypted_secrets ?? true,
+            rebateRateBps: Math.round((c.rebate_percentage || 0) * 100),
+            rebatePercentage: c.rebate_percentage,
+            clientOrderIdPrefix: c.client_order_id_prefix,
+            headerKey: c.header_key,
+            headerValue: c.header_value,
+            payloadParams: c.payload_params,
+            payoutAddress: c.payout_address,
+            version: c.version || 1,
+            updatedAt: c.updated_at ? (typeof c.updated_at === 'string' ? c.updated_at : new Date(c.updated_at.seconds * 1000).toISOString()) : new Date().toISOString(),
+            updatedBy: c.updated_by || 'system',
+            notes: c.notes || '',
+            extraParams: c.payload_params || {},
+          };
+        }
       }
     } catch {
       // Fallback
@@ -988,25 +1050,53 @@ export const adminApi = {
   },
 
   updateBrokerConfig: async (req: UpdateBrokerConfigRequest): Promise<BrokerConfigDTO> => {
+    const exchangeSlug = req.exchange.replace(/^EXCHANGE_/, '').toLowerCase();
+    const rebatePct = req.rebatePercentage !== undefined ? req.rebatePercentage : (req.rebateRateBps ? req.rebateRateBps / 100 : 0);
+    const targetId = req.id || exchangeSlug;
+
     try {
-      const res = await adminFetch(`/v1/broker/configs/${encodeURIComponent(req.exchange)}`, {
+      const res = await adminFetch(`/v1/admin/broker-configs/${encodeURIComponent(targetId)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          exchange: req.exchange,
+          id: req.id || '',
+          exchange: exchangeSlug,
+          environment: req.environment || 'production',
+          broker_id: req.rawIdentifier,
+          client_order_id_prefix: req.clientOrderIdPrefix || '',
           attribution_type: req.attributionType,
-          raw_identifier: req.rawIdentifier,
-          raw_secret: req.rawSecret || '',
-          status: req.status,
-          rebate_rate_bps: req.rebateRateBps,
+          header_key: req.headerKey || '',
+          header_value: req.headerValue || '',
+          payload_params: req.payloadParams || req.extraParams || {},
+          rebate_percentage: rebatePct,
+          payout_address: req.payoutAddress || (req.exchange === 'EXCHANGE_HYPERLIQUID' ? req.rawIdentifier : ''),
+          is_active: req.status === 'BROKER_CONFIG_STATUS_ACTIVE',
           expected_version: req.expectedVersion,
-          notes: req.notes || '',
-          extra_params: req.extraParams || {},
+          raw_secrets_plaintext: req.rawSecret || '',
+          change_reason: req.notes || 'Updated via Admin Console',
         }),
       });
       if (res.ok) {
         const data = await res.json();
-        if (data.config) return data.config;
+        if (data.config) {
+          const c = data.config;
+          return {
+            id: c.id,
+            exchange: req.exchange,
+            environment: c.environment || 'production',
+            attributionType: req.attributionType,
+            status: c.is_active ? 'BROKER_CONFIG_STATUS_ACTIVE' : 'BROKER_CONFIG_STATUS_INACTIVE',
+            maskedIdentifier: c.masked_identifier || '***',
+            isKmsSealed: c.has_encrypted_secrets ?? true,
+            rebateRateBps: Math.round((c.rebate_percentage || 0) * 100),
+            rebatePercentage: c.rebate_percentage,
+            version: c.version || (req.expectedVersion + 1),
+            updatedAt: new Date().toISOString(),
+            updatedBy: c.updated_by || 'admin-governance-console',
+            notes: req.notes || '',
+            extraParams: c.payload_params || req.extraParams || {},
+          };
+        }
       }
     } catch {
       // Fallback
@@ -1025,17 +1115,25 @@ export const adminApi = {
       : '***';
 
     const updated: BrokerConfigDTO = {
+      id: req.id,
       exchange: req.exchange,
+      environment: req.environment || 'production',
       attributionType: req.attributionType,
       status: req.status,
       maskedIdentifier: masked,
       isKmsSealed: true,
       rebateRateBps: req.rebateRateBps,
+      rebatePercentage: rebatePct,
+      clientOrderIdPrefix: req.clientOrderIdPrefix,
+      headerKey: req.headerKey,
+      headerValue: req.headerValue,
+      payloadParams: req.payloadParams || req.extraParams,
+      payoutAddress: req.payoutAddress || (req.exchange === 'EXCHANGE_HYPERLIQUID' ? req.rawIdentifier : undefined),
       version: (idx >= 0 ? list[idx].version : 0) + 1,
       updatedAt: new Date().toISOString(),
       updatedBy: 'admin-governance-console',
       notes: req.notes || '',
-      extraParams: req.extraParams || {},
+      extraParams: req.extraParams || req.payloadParams || {},
     };
 
     if (idx >= 0) {
@@ -1051,25 +1149,29 @@ export const adminApi = {
   },
 
   testBrokerAttribution: async (req: TestBrokerAttributionRequest): Promise<TestBrokerAttributionResponse> => {
+    const exchangeSlug = req.exchange.replace(/^EXCHANGE_/, '').toLowerCase();
     try {
-      const res = await adminFetch('/v1/broker/attribution/test', {
+      const res = await adminFetch('/v1/admin/broker-configs/test-attribution', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          exchange: req.exchange,
-          test_order_id: req.testOrderId,
-          test_payload: req.testPayload || '',
+          exchange: exchangeSlug,
+          environment: 'production',
+          raw_client_order_id: req.testOrderId,
+          symbol: 'BTCUSDT',
+          order_type: 'LIMIT',
+          execute_sandbox_probe: false,
         }),
       });
       if (res.ok) {
         const data = await res.json();
         return {
-          success: data.success ?? true,
-          attributedOrderId: data.attributed_order_id || req.testOrderId,
+          success: data.is_valid ?? true,
+          attributedOrderId: data.formatted_client_order_id || req.testOrderId,
           injectedHeaders: data.injected_headers || {},
-          injectedParams: data.injected_params || {},
-          statusMessage: data.status_message || 'Attribution verified',
-          attributionLatencyNanos: data.attribution_latency_nanos || 18,
+          injectedParams: data.injected_payload_fields || {},
+          statusMessage: data.diagnostic_message || 'Attribution verified',
+          attributionLatencyNanos: data.formatting_latency_nanos || 18,
         };
       }
     } catch {
