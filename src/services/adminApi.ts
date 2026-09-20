@@ -150,32 +150,32 @@ export interface CreateCompensationClaimPayload {
   evidencePayload: string;
 }
 
+import {
+  ATTRIBUTION_TYPE,
+  AttributionTypeContract,
+  VENUE_LIFECYCLE_STATUS,
+  VenueLifecycleStatusContract,
+  BROKER_CONFIG_STATUS,
+  BrokerConfigStatusContract,
+  BrokerConfigWireDTO,
+  UpdateBrokerConfigWireRequest,
+} from '../types/contracts/brokerConfig';
+
+export { ATTRIBUTION_TYPE, VENUE_LIFECYCLE_STATUS, BROKER_CONFIG_STATUS };
+
 export type ExchangeKey =
   | 'EXCHANGE_BINANCE_SPOT'
   | 'EXCHANGE_BINANCE_FUTURES'
   | 'EXCHANGE_BYBIT'
   | 'EXCHANGE_BINGX'
-  | 'EXCHANGE_BITGET'
   | 'EXCHANGE_HYPERLIQUID'
   | 'EXCHANGE_GMX_V2';
 
-export type AttributionType =
-  | 'ATTRIBUTION_TYPE_CLIENT_ORDER_ID_PREFIX'
-  | 'ATTRIBUTION_TYPE_SOURCE_KEY_HEADER'
-  | 'ATTRIBUTION_TYPE_BUILDER_FEE'
-  | 'ATTRIBUTION_TYPE_OAUTH_CHANNEL'
-  | 'ATTRIBUTION_TYPE_REFERRAL_CODE';
+export type AttributionType = AttributionTypeContract | 'ATTRIBUTION_TYPE_SOURCE_KEY_HEADER' | 'ATTRIBUTION_TYPE_BUILDER_FEE' | 'ATTRIBUTION_TYPE_REFERRAL_CODE';
 
-export type BrokerConfigStatus =
-  | 'BROKER_CONFIG_STATUS_ACTIVE'
-  | 'BROKER_CONFIG_STATUS_MAINTENANCE'
-  | 'BROKER_CONFIG_STATUS_INACTIVE';
+export type BrokerConfigStatus = BrokerConfigStatusContract | 'BROKER_CONFIG_STATUS_MAINTENANCE';
 
-export type VenueLifecycleStatus =
-  | 'VENUE_LIFECYCLE_STATUS_ACTIVE'
-  | 'VENUE_LIFECYCLE_STATUS_RESTRICTED_NEW'
-  | 'VENUE_LIFECYCLE_STATUS_SUNSETTING'
-  | 'VENUE_LIFECYCLE_STATUS_TERMINATED';
+export type VenueLifecycleStatus = VenueLifecycleStatusContract;
 
 export interface BrokerConfigDTO {
   id?: string;
@@ -275,9 +275,6 @@ export function normalizeExchangeKey(raw: string): ExchangeKey {
   if (upper === 'BINGX' || upper === 'EXCHANGE_BINGX') {
     return 'EXCHANGE_BINGX';
   }
-  if (upper === 'BITGET' || upper === 'EXCHANGE_BITGET') {
-    return 'EXCHANGE_BITGET';
-  }
   if (upper === 'HYPERLIQUID' || upper === 'EXCHANGE_HYPERLIQUID') {
     return 'EXCHANGE_HYPERLIQUID';
   }
@@ -287,34 +284,117 @@ export function normalizeExchangeKey(raw: string): ExchangeKey {
   return (upper.startsWith('EXCHANGE_') ? upper : `EXCHANGE_${upper}`) as ExchangeKey;
 }
 
-export function toProtoAttribution(at: AttributionType): string {
+export function toProtoAttribution(at: AttributionType): AttributionTypeContract {
   switch (at) {
     case 'ATTRIBUTION_TYPE_SOURCE_KEY_HEADER':
-      return 'ATTRIBUTION_TYPE_HTTP_HEADER';
+      return ATTRIBUTION_TYPE.HTTP_HEADER;
     case 'ATTRIBUTION_TYPE_BUILDER_FEE':
-      return 'ATTRIBUTION_TYPE_BUILDER_TAG';
+      return ATTRIBUTION_TYPE.BUILDER_TAG;
     case 'ATTRIBUTION_TYPE_REFERRAL_CODE':
-    case 'ATTRIBUTION_TYPE_OAUTH_CHANNEL':
-      return 'ATTRIBUTION_TYPE_PAYLOAD_FIELD';
+      return ATTRIBUTION_TYPE.PAYLOAD_FIELD;
     default:
-      return at || 'ATTRIBUTION_TYPE_CLIENT_ORDER_ID_PREFIX';
+      return (at as AttributionTypeContract) || ATTRIBUTION_TYPE.CLIENT_ORDER_ID_PREFIX;
   }
 }
 
-export function fromProtoAttribution(raw: string, ex?: ExchangeKey): AttributionType {
-  switch (raw) {
-    case 'ATTRIBUTION_TYPE_HTTP_HEADER':
-      return 'ATTRIBUTION_TYPE_SOURCE_KEY_HEADER';
-    case 'ATTRIBUTION_TYPE_BUILDER_TAG':
-      return 'ATTRIBUTION_TYPE_BUILDER_FEE';
-    case 'ATTRIBUTION_TYPE_PAYLOAD_FIELD':
-      return 'ATTRIBUTION_TYPE_REFERRAL_CODE';
-    default:
-      if (ex === 'EXCHANGE_BINGX') return 'ATTRIBUTION_TYPE_SOURCE_KEY_HEADER';
-      if (ex === 'EXCHANGE_HYPERLIQUID') return 'ATTRIBUTION_TYPE_BUILDER_FEE';
-      if (ex === 'EXCHANGE_GMX_V2') return 'ATTRIBUTION_TYPE_REFERRAL_CODE';
-      return (raw as AttributionType) || 'ATTRIBUTION_TYPE_CLIENT_ORDER_ID_PREFIX';
+export function fromProtoAttribution(raw: string | number, ex?: ExchangeKey): AttributionTypeContract {
+  if (typeof raw === 'number') {
+    switch (raw) {
+      case 1: return ATTRIBUTION_TYPE.CLIENT_ORDER_ID_PREFIX;
+      case 2: return ATTRIBUTION_TYPE.HTTP_HEADER;
+      case 3: return ATTRIBUTION_TYPE.PAYLOAD_FIELD;
+      case 4: return ATTRIBUTION_TYPE.BUILDER_TAG;
+      case 5: return ATTRIBUTION_TYPE.HYBRID;
+      default: break;
+    }
   }
+  const str = String(raw || '').toUpperCase();
+  if (str.includes('BUILDER')) return ATTRIBUTION_TYPE.BUILDER_TAG;
+  if (str.includes('HEADER')) return ATTRIBUTION_TYPE.HTTP_HEADER;
+  if (str.includes('PAYLOAD') || str.includes('REFERRAL')) return ATTRIBUTION_TYPE.PAYLOAD_FIELD;
+  if (str.includes('PREFIX')) return ATTRIBUTION_TYPE.CLIENT_ORDER_ID_PREFIX;
+
+  if (ex === 'EXCHANGE_HYPERLIQUID') return ATTRIBUTION_TYPE.BUILDER_TAG;
+  if (ex === 'EXCHANGE_BINGX') return ATTRIBUTION_TYPE.HTTP_HEADER;
+  if (ex === 'EXCHANGE_GMX_V2') return ATTRIBUTION_TYPE.PAYLOAD_FIELD;
+  return ATTRIBUTION_TYPE.CLIENT_ORDER_ID_PREFIX;
+}
+
+/**
+ * Universal Protobuf Wire DTO parser complying with lowerCamelCase wire JSON standards
+ * [Policy Ref: Clean Architecture & Zero Magic Strings §4.5]
+ */
+export function parseBrokerConfigWire(c: any, fallbackExchange?: ExchangeKey): BrokerConfigDTO {
+  const rawExchange = c.exchange || fallbackExchange || '';
+  const ex = normalizeExchangeKey(rawExchange);
+
+  // Read lowerCamelCase wire JSON standard (with fallback to snake_case)
+  const isActive = c.isActive !== undefined ? Boolean(c.isActive) : Boolean(c.is_active);
+
+  let rawLifecycle = c.lifecycleStatus || c.lifecycle_status || '';
+  if (!rawLifecycle) {
+    rawLifecycle = isActive ? VENUE_LIFECYCLE_STATUS.ACTIVE : VENUE_LIFECYCLE_STATUS.TERMINATED;
+  } else if (!rawLifecycle.startsWith('VENUE_LIFECYCLE_STATUS_')) {
+    rawLifecycle = `VENUE_LIFECYCLE_STATUS_${rawLifecycle}`;
+  }
+
+  const rebatePct = Number(c.rebatePercentage !== undefined ? c.rebatePercentage : (c.rebate_percentage || 0));
+  const rawSunsetDeadline = c.sunsetDeadline !== undefined ? c.sunsetDeadline : c.sunset_deadline;
+  let sunsetDeadlineStr: string | null = null;
+  if (rawSunsetDeadline) {
+    if (typeof rawSunsetDeadline === 'string') {
+      sunsetDeadlineStr = rawSunsetDeadline;
+    } else if (rawSunsetDeadline.seconds !== undefined) {
+      sunsetDeadlineStr = new Date(Number(rawSunsetDeadline.seconds) * 1000).toISOString();
+    }
+  }
+
+  const sunsetNotice = (c.sunsetNotice !== undefined ? c.sunsetNotice : c.sunset_notice) || null;
+  const maskedIdentifier = (c.maskedIdentifier !== undefined ? c.maskedIdentifier : c.masked_identifier) || '***';
+  const isKmsSealed = c.hasEncryptedSecrets !== undefined ? Boolean(c.hasEncryptedSecrets) : (c.has_encrypted_secrets !== undefined ? Boolean(c.has_encrypted_secrets) : true);
+  const clientOrderIdPrefix = (c.clientOrderIdPrefix !== undefined ? c.clientOrderIdPrefix : c.client_order_id_prefix) || '';
+  const headerKey = (c.headerKey !== undefined ? c.headerKey : c.header_key) || '';
+  const headerValue = (c.headerValue !== undefined ? c.headerValue : c.header_value) || '';
+  const payloadParams = (c.payloadParams !== undefined ? c.payloadParams : c.payload_params) || {};
+  const payoutAddress = (c.payoutAddress !== undefined ? c.payoutAddress : c.payout_address) || '';
+  const version = Number(c.version !== undefined ? c.version : 1);
+  const rawUpdatedAt = c.updatedAt !== undefined ? c.updatedAt : c.updated_at;
+  let updatedAtStr = new Date().toISOString();
+  if (rawUpdatedAt) {
+    if (typeof rawUpdatedAt === 'string') {
+      updatedAtStr = rawUpdatedAt;
+    } else if (rawUpdatedAt.seconds !== undefined) {
+      updatedAtStr = new Date(Number(rawUpdatedAt.seconds) * 1000).toISOString();
+    }
+  }
+  const updatedBy = (c.updatedBy !== undefined ? c.updatedBy : c.updated_by) || 'system';
+  const notes = c.notes || '';
+  const rawAttribution = c.attributionType !== undefined ? c.attributionType : c.attribution_type;
+
+  return {
+    id: c.id,
+    exchange: ex,
+    environment: c.environment || 'production',
+    attributionType: fromProtoAttribution(rawAttribution, ex),
+    status: isActive ? BROKER_CONFIG_STATUS.ACTIVE : BROKER_CONFIG_STATUS.INACTIVE,
+    lifecycleStatus: rawLifecycle as VenueLifecycleStatus,
+    sunsetDeadline: sunsetDeadlineStr,
+    sunsetNotice,
+    maskedIdentifier,
+    isKmsSealed,
+    rebateRateBps: Math.round(rebatePct * 100),
+    rebatePercentage: rebatePct,
+    clientOrderIdPrefix,
+    headerKey,
+    headerValue,
+    payloadParams,
+    payoutAddress,
+    version,
+    updatedAt: updatedAtStr,
+    updatedBy,
+    notes,
+    extraParams: payloadParams,
+  };
 }
 
 /**
@@ -1056,43 +1136,19 @@ export const adminApi = {
       if (res.ok) {
         const data = await res.json();
         if (data.configs && Array.isArray(data.configs)) {
-          const mapped: BrokerConfigDTO[] = data.configs.map((c: any) => {
-            const ex = normalizeExchangeKey(c.exchange);
-            return {
-              id: c.id,
-              exchange: ex,
-              environment: c.environment || 'production',
-              attributionType: fromProtoAttribution(c.attribution_type, ex),
-              status: (c.is_active ? 'BROKER_CONFIG_STATUS_ACTIVE' : 'BROKER_CONFIG_STATUS_INACTIVE') as BrokerConfigStatus,
-              lifecycleStatus: (c.lifecycle_status || (c.is_active ? 'VENUE_LIFECYCLE_STATUS_ACTIVE' : 'VENUE_LIFECYCLE_STATUS_TERMINATED')) as VenueLifecycleStatus,
-              sunsetDeadline: c.sunset_deadline ? (typeof c.sunset_deadline === 'string' ? c.sunset_deadline : new Date(c.sunset_deadline.seconds * 1000).toISOString()) : null,
-              sunsetNotice: c.sunset_notice || null,
-              maskedIdentifier: c.masked_identifier || '***',
-              isKmsSealed: c.has_encrypted_secrets ?? true,
-              rebateRateBps: Math.round((c.rebate_percentage || 0) * 100),
-              rebatePercentage: c.rebate_percentage,
-              clientOrderIdPrefix: c.client_order_id_prefix,
-              headerKey: c.header_key,
-              headerValue: c.header_value,
-              payloadParams: c.payload_params,
-              payoutAddress: c.payout_address,
-              version: c.version || 1,
-              updatedAt: c.updated_at ? (typeof c.updated_at === 'string' ? c.updated_at : new Date(c.updated_at.seconds * 1000).toISOString()) : new Date().toISOString(),
-              updatedBy: c.updated_by || 'system',
-              notes: c.notes || '',
-              extraParams: c.payload_params || {},
-            };
-          });
+          const mapped: BrokerConfigDTO[] = data.configs
+            .map((c: any) => parseBrokerConfigWire(c))
+            .filter((c: BrokerConfigDTO) => c.exchange !== ('EXCHANGE_BITGET' as any));
 
-          // Canonical merge: Ensure all 7 supported venues always exist
+          // Canonical merge: Ensure all 6 supported venues always exist
           const merged = INITIAL_BROKER_CONFIGS.map((initCfg) => {
             const found = mapped.find((m) => m.exchange === initCfg.exchange);
             return found ? { ...initCfg, ...found } : initCfg;
           });
 
-          // Append any custom venue not present in baseline
+          // Append any custom venue not present in baseline (excluding bitget)
           for (const m of mapped) {
-            if (!merged.some((item) => item.exchange === m.exchange)) {
+            if (m.exchange !== ('EXCHANGE_BITGET' as any) && !merged.some((item) => item.exchange === m.exchange)) {
               merged.push(m);
             }
           }
@@ -1111,7 +1167,14 @@ export const adminApi = {
 
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('vf_admin_broker_configs');
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) {
+            return parsed.filter((c: any) => c.exchange !== 'EXCHANGE_BITGET');
+          }
+        } catch { /* ignore */ }
+      }
     }
     return INITIAL_BROKER_CONFIGS;
   },
@@ -1125,31 +1188,7 @@ export const adminApi = {
       if (res.ok) {
         const data = await res.json();
         if (data.config) {
-          const c = data.config;
-          const result: BrokerConfigDTO = {
-            id: c.id,
-            exchange: (c.exchange?.toUpperCase().startsWith('EXCHANGE_') ? c.exchange : `EXCHANGE_${c.exchange?.toUpperCase()}`) as ExchangeKey,
-            environment: c.environment || 'production',
-            attributionType: (c.attribution_type || 'ATTRIBUTION_TYPE_CLIENT_ORDER_ID_PREFIX') as AttributionType,
-            status: (c.is_active ? 'BROKER_CONFIG_STATUS_ACTIVE' : 'BROKER_CONFIG_STATUS_INACTIVE') as BrokerConfigStatus,
-            lifecycleStatus: (c.lifecycle_status || (c.is_active ? 'VENUE_LIFECYCLE_STATUS_ACTIVE' : 'VENUE_LIFECYCLE_STATUS_TERMINATED')) as VenueLifecycleStatus,
-            sunsetDeadline: c.sunset_deadline ? (typeof c.sunset_deadline === 'string' ? c.sunset_deadline : new Date(c.sunset_deadline.seconds * 1000).toISOString()) : null,
-            sunsetNotice: c.sunset_notice || null,
-            maskedIdentifier: c.masked_identifier || '***',
-            isKmsSealed: c.has_encrypted_secrets ?? true,
-            rebateRateBps: Math.round((c.rebate_percentage || 0) * 100),
-            rebatePercentage: c.rebate_percentage,
-            clientOrderIdPrefix: c.client_order_id_prefix,
-            headerKey: c.header_key,
-            headerValue: c.header_value,
-            payloadParams: c.payload_params,
-            payoutAddress: c.payout_address,
-            version: c.version || 1,
-            updatedAt: c.updated_at ? (typeof c.updated_at === 'string' ? c.updated_at : new Date(c.updated_at.seconds * 1000).toISOString()) : new Date().toISOString(),
-            updatedBy: c.updated_by || 'system',
-            notes: c.notes || '',
-            extraParams: c.payload_params || {},
-          };
+          const result = parseBrokerConfigWire(data.config, exchange);
           if (typeof window !== 'undefined') {
             let list = [...INITIAL_BROKER_CONFIGS];
             const saved = localStorage.getItem('vf_admin_broker_configs');
@@ -1198,8 +1237,8 @@ export const adminApi = {
           payload_params: req.payloadParams || req.extraParams || {},
           rebate_percentage: rebatePct,
           payout_address: req.payoutAddress || (req.exchange === 'EXCHANGE_HYPERLIQUID' ? req.rawIdentifier : ''),
-          is_active: req.status === 'BROKER_CONFIG_STATUS_ACTIVE',
-          lifecycle_status: req.lifecycleStatus || (req.status === 'BROKER_CONFIG_STATUS_ACTIVE' ? 'VENUE_LIFECYCLE_STATUS_ACTIVE' : 'VENUE_LIFECYCLE_STATUS_TERMINATED'),
+          is_active: req.status === BROKER_CONFIG_STATUS.ACTIVE,
+          lifecycle_status: req.lifecycleStatus || (req.status === BROKER_CONFIG_STATUS.ACTIVE ? VENUE_LIFECYCLE_STATUS.ACTIVE : VENUE_LIFECYCLE_STATUS.TERMINATED),
           sunset_deadline: req.sunsetDeadline || null,
           sunset_notice: req.sunsetNotice || '',
           expected_version: req.expectedVersion,
@@ -1210,31 +1249,7 @@ export const adminApi = {
       if (res.ok) {
         const data = await res.json();
         if (data.config) {
-          const c = data.config;
-          const result: BrokerConfigDTO = {
-            id: c.id,
-            exchange: req.exchange,
-            environment: c.environment || 'production',
-            attributionType: req.attributionType,
-            status: c.is_active ? 'BROKER_CONFIG_STATUS_ACTIVE' : 'BROKER_CONFIG_STATUS_INACTIVE',
-            lifecycleStatus: (c.lifecycle_status || req.lifecycleStatus || (c.is_active ? 'VENUE_LIFECYCLE_STATUS_ACTIVE' : 'VENUE_LIFECYCLE_STATUS_TERMINATED')) as VenueLifecycleStatus,
-            sunsetDeadline: c.sunset_deadline ? (typeof c.sunset_deadline === 'string' ? c.sunset_deadline : new Date(c.sunset_deadline.seconds * 1000).toISOString()) : (req.sunsetDeadline || null),
-            sunsetNotice: c.sunset_notice || req.sunsetNotice || null,
-            maskedIdentifier: c.masked_identifier || '***',
-            isKmsSealed: c.has_encrypted_secrets ?? true,
-            rebateRateBps: Math.round((c.rebate_percentage || 0) * 100),
-            rebatePercentage: c.rebate_percentage,
-            clientOrderIdPrefix: c.client_order_id_prefix || req.clientOrderIdPrefix,
-            headerKey: c.header_key || req.headerKey,
-            headerValue: c.header_value || req.headerValue,
-            payloadParams: c.payload_params || req.payloadParams || req.extraParams,
-            payoutAddress: c.payout_address || req.payoutAddress,
-            version: c.version || (req.expectedVersion + 1),
-            updatedAt: new Date().toISOString(),
-            updatedBy: c.updated_by || 'admin-governance-console',
-            notes: req.notes || '',
-            extraParams: c.payload_params || req.extraParams || {},
-          };
+          const result = parseBrokerConfigWire(data.config, req.exchange);
 
           if (typeof window !== 'undefined') {
             let list = [...INITIAL_BROKER_CONFIGS];
@@ -1258,56 +1273,48 @@ export const adminApi = {
         console.error(`[adminApi.updateBrokerConfig] API returned HTTP ${res.status}:`, errText);
       }
     } catch (err) {
-      console.error('[adminApi.updateBrokerConfig] Network / API error:', err);
+      console.error(`[adminApi.updateBrokerConfig] Network error updating ${targetId}:`, err);
     }
 
-    // LocalStorage fallback for standalone admin development
-    let list = [...INITIAL_BROKER_CONFIGS];
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('vf_admin_broker_configs');
-      if (saved) list = JSON.parse(saved);
-    }
-
-    const idx = list.findIndex((c) => c.exchange === req.exchange);
-    const masked = req.rawIdentifier.length > 4
-      ? `${req.rawIdentifier.slice(0, 3)}***${req.rawIdentifier.slice(-3)}`
-      : '***';
-
-    const updated: BrokerConfigDTO = {
-      id: req.id,
+    // Fallback: local optimistic update
+    const result: BrokerConfigDTO = {
+      id: req.id || `cfg_${exchangeSlug}_local`,
       exchange: req.exchange,
       environment: req.environment || 'production',
       attributionType: req.attributionType,
       status: req.status,
-      lifecycleStatus: req.lifecycleStatus || (req.status === 'BROKER_CONFIG_STATUS_ACTIVE' ? 'VENUE_LIFECYCLE_STATUS_ACTIVE' : 'VENUE_LIFECYCLE_STATUS_TERMINATED'),
+      lifecycleStatus: req.lifecycleStatus || (req.status === BROKER_CONFIG_STATUS.ACTIVE ? VENUE_LIFECYCLE_STATUS.ACTIVE : VENUE_LIFECYCLE_STATUS.TERMINATED),
       sunsetDeadline: req.sunsetDeadline || null,
       sunsetNotice: req.sunsetNotice || null,
-      maskedIdentifier: masked,
+      maskedIdentifier: req.rawIdentifier.length > 6 ? `${req.rawIdentifier.slice(0, 3)}***${req.rawIdentifier.slice(-3)}` : '***',
       isKmsSealed: true,
       rebateRateBps: req.rebateRateBps,
       rebatePercentage: rebatePct,
       clientOrderIdPrefix: req.clientOrderIdPrefix,
       headerKey: req.headerKey,
       headerValue: req.headerValue,
-      payloadParams: req.payloadParams || req.extraParams,
-      payoutAddress: req.payoutAddress || (req.exchange === 'EXCHANGE_HYPERLIQUID' ? req.rawIdentifier : undefined),
-      version: (idx >= 0 ? list[idx].version : 0) + 1,
+      payloadParams: req.payloadParams || req.extraParams || {},
+      payoutAddress: req.payoutAddress,
+      version: (req.expectedVersion || 0) + 1,
       updatedAt: new Date().toISOString(),
       updatedBy: 'admin-governance-console',
       notes: req.notes || '',
-      extraParams: req.extraParams || req.payloadParams || {},
+      extraParams: req.payloadParams || req.extraParams || {},
     };
 
-    if (idx >= 0) {
-      list[idx] = updated;
-    } else {
-      list.push(updated);
-    }
-
     if (typeof window !== 'undefined') {
+      let list = [...INITIAL_BROKER_CONFIGS];
+      const saved = localStorage.getItem('vf_admin_broker_configs');
+      if (saved) {
+        try { list = JSON.parse(saved); } catch { /* ignore */ }
+      }
+      const idx = list.findIndex((item) => item.exchange === req.exchange);
+      if (idx >= 0) list[idx] = result;
+      else list.push(result);
       localStorage.setItem('vf_admin_broker_configs', JSON.stringify(list));
     }
-    return updated;
+
+    return result;
   },
 
   testBrokerAttribution: async (req: TestBrokerAttributionRequest): Promise<TestBrokerAttributionResponse> => {
@@ -1571,7 +1578,7 @@ export let INITIAL_BROKER_CONFIGS: BrokerConfigDTO[] = [
   },
   {
     exchange: 'EXCHANGE_BINGX',
-    attributionType: 'ATTRIBUTION_TYPE_SOURCE_KEY_HEADER',
+    attributionType: 'ATTRIBUTION_TYPE_HTTP_HEADER',
     status: 'BROKER_CONFIG_STATUS_ACTIVE',
     lifecycleStatus: 'VENUE_LIFECYCLE_STATUS_ACTIVE',
     maskedIdentifier: 'BX-***-ILL',
@@ -1584,21 +1591,8 @@ export let INITIAL_BROKER_CONFIGS: BrokerConfigDTO[] = [
     extraParams: { client_order_id_prefix: 'x-VF-' },
   },
   {
-    exchange: 'EXCHANGE_BITGET',
-    attributionType: 'ATTRIBUTION_TYPE_REFERRAL_CODE',
-    status: 'BROKER_CONFIG_STATUS_ACTIVE',
-    lifecycleStatus: 'VENUE_LIFECYCLE_STATUS_ACTIVE',
-    maskedIdentifier: 'ven***',
-    isKmsSealed: true,
-    rebateRateBps: 4000,
-    version: 1,
-    updatedAt: new Date(Date.now() - 86400_000).toISOString(),
-    updatedBy: 'system-bootstrap',
-    notes: 'Bitget Broker / Channel Code attribution',
-  },
-  {
     exchange: 'EXCHANGE_HYPERLIQUID',
-    attributionType: 'ATTRIBUTION_TYPE_BUILDER_FEE',
+    attributionType: 'ATTRIBUTION_TYPE_BUILDER_TAG',
     status: 'BROKER_CONFIG_STATUS_ACTIVE',
     lifecycleStatus: 'VENUE_LIFECYCLE_STATUS_ACTIVE',
     maskedIdentifier: '0x7***2245',
@@ -1611,7 +1605,7 @@ export let INITIAL_BROKER_CONFIGS: BrokerConfigDTO[] = [
   },
   {
     exchange: 'EXCHANGE_GMX_V2',
-    attributionType: 'ATTRIBUTION_TYPE_REFERRAL_CODE',
+    attributionType: 'ATTRIBUTION_TYPE_PAYLOAD_FIELD',
     status: 'BROKER_CONFIG_STATUS_ACTIVE',
     lifecycleStatus: 'VENUE_LIFECYCLE_STATUS_ACTIVE',
     maskedIdentifier: 'ven***',
@@ -1654,13 +1648,6 @@ export let INITIAL_PUBLIC_EXCHANGE_CONFIGS: PublicExchangeConfigDTO[] = [
     isBrokerActive: true,
   },
   {
-    exchange: 'EXCHANGE_BITGET',
-    name: 'Bitget (Unified)',
-    portalUrl: 'https://www.bitget.com/account/newapi',
-    staticNatIps: ['34.118.24.10', '34.118.24.11'],
-    isBrokerActive: true,
-  },
-  {
     exchange: 'EXCHANGE_HYPERLIQUID',
     name: 'Hyperliquid L1',
     portalUrl: 'https://app.hyperliquid.xyz/API',
@@ -1675,5 +1662,6 @@ export let INITIAL_PUBLIC_EXCHANGE_CONFIGS: PublicExchangeConfigDTO[] = [
     isBrokerActive: true,
   },
 ];
+
 
 
