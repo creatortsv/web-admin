@@ -22,4 +22,6 @@
 - `src/app/treasury/page.tsx`: Treasury management, hot/cold sweep thresholds, and vault balances.
 - `src/app/payments/page.tsx`: Universal payment gateways (Stripe, Lemon Squeezy, Crypto Direct, Mock Sandbox) with Cloud KMS sealing.
 - `src/app/ai-quant/page.tsx`: AI Quant Strategy Synthesizer console.
+- `src/app/settings/broker-rebates/page.tsx`: Broker & Rebate Governance cockpit across 6 venues (Binance Spot, Binance Futures, Bybit, BingX, Hyperliquid, GMX v2) with Cloud KMS sealing, on-chain builder tag management, and 4-stage venue lifecycle state transitions.
+- `src/types/contracts/brokerConfig.ts`: Authoritative Protobuf wire DTOs matching `venom.broker_config.v1` in canonical `lowerCamelCase`.
 
