@@ -562,22 +562,35 @@ export default function BrokerRebatesPage() {
       setSunsetDeadline(nextDeadline);
     }
 
-    if (!activeConfig) return;
+    const fallbackPrefix = meta.key === 'EXCHANGE_BINGX' ? 'BX-AI-SKILL' : 'x-VF-';
+    const rawIdent = activeConfig?.maskedIdentifier && activeConfig.maskedIdentifier !== '***'
+      ? activeConfig.maskedIdentifier
+      : fallbackPrefix;
+
     try {
       const updated = await adminApi.updateBrokerConfig({
+        id: activeConfig?.id,
         exchange: selectedExchange,
-        attributionType: activeConfig.attributionType,
-        rawIdentifier: activeConfig.maskedIdentifier,
+        attributionType: activeConfig?.attributionType || meta.defaultAttribution,
+        rawIdentifier: rawIdent,
         status: newStatus,
         lifecycleStatus: newLifecycle,
         sunsetDeadline: newLifecycle === 'VENUE_LIFECYCLE_STATUS_SUNSETTING' && nextDeadline ? new Date(nextDeadline).toISOString() : null,
         sunsetNotice: newLifecycle === 'VENUE_LIFECYCLE_STATUS_SUNSETTING' ? (sunsetNotice || 'Venue entering sunset phase. Migrations advised.') : null,
-        rebateRateBps: activeConfig.rebateRateBps,
-        expectedVersion: activeConfig.version,
-        notes: activeConfig.notes,
-        extraParams: activeConfig.extraParams,
+        rebateRateBps: activeConfig?.rebateRateBps || 3000,
+        expectedVersion: activeConfig?.version || 0,
+        notes: activeConfig?.notes || `Lifecycle updated to ${newLifecycle}`,
+        extraParams: activeConfig?.extraParams || {},
       });
-      setConfigs((prev) => prev.map((c) => (c.exchange === selectedExchange ? updated : c)));
+      setConfigs((prev) => {
+        const idx = prev.findIndex((c) => c.exchange === selectedExchange);
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = updated;
+          return next;
+        }
+        return [...prev, updated];
+      });
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : 'Failed to update lifecycle status');
     }
@@ -587,22 +600,36 @@ export default function BrokerRebatesPage() {
     setShowTerminatedModal(false);
     setLifecycleStatus('VENUE_LIFECYCLE_STATUS_TERMINATED');
     setStatus('BROKER_CONFIG_STATUS_INACTIVE');
-    if (!activeConfig) return;
+
+    const fallbackPrefix = meta.key === 'EXCHANGE_BINGX' ? 'BX-AI-SKILL' : 'x-VF-';
+    const rawIdent = activeConfig?.maskedIdentifier && activeConfig.maskedIdentifier !== '***'
+      ? activeConfig.maskedIdentifier
+      : fallbackPrefix;
+
     try {
       const updated = await adminApi.updateBrokerConfig({
+        id: activeConfig?.id,
         exchange: selectedExchange,
-        attributionType: activeConfig.attributionType,
-        rawIdentifier: activeConfig.maskedIdentifier,
+        attributionType: activeConfig?.attributionType || meta.defaultAttribution,
+        rawIdentifier: rawIdent,
         status: 'BROKER_CONFIG_STATUS_INACTIVE',
         lifecycleStatus: 'VENUE_LIFECYCLE_STATUS_TERMINATED',
         sunsetDeadline: null,
         sunsetNotice: 'Venue decommissioned by operator. Automated graceful soft-stop enforced.',
-        rebateRateBps: activeConfig.rebateRateBps,
-        expectedVersion: activeConfig.version,
-        notes: activeConfig.notes,
-        extraParams: activeConfig.extraParams,
+        rebateRateBps: activeConfig?.rebateRateBps || 3000,
+        expectedVersion: activeConfig?.version || 0,
+        notes: activeConfig?.notes || 'Venue decommissioned by operator. Automated graceful soft-stop enforced.',
+        extraParams: activeConfig?.extraParams || {},
       });
-      setConfigs((prev) => prev.map((c) => (c.exchange === selectedExchange ? updated : c)));
+      setConfigs((prev) => {
+        const idx = prev.findIndex((c) => c.exchange === selectedExchange);
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = updated;
+          return next;
+        }
+        return [...prev, updated];
+      });
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : 'Failed to decommission venue');
     }
@@ -676,21 +703,21 @@ export default function BrokerRebatesPage() {
                 </span>
                 <span
                   className={`h-2 w-2 rounded-full ${
-                    (cfg?.lifecycleStatus === 'VENUE_LIFECYCLE_STATUS_ACTIVE' || (!cfg?.lifecycleStatus && isActive))
-                      ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]'
-                      : cfg?.lifecycleStatus === 'VENUE_LIFECYCLE_STATUS_RESTRICTED_NEW'
-                      ? 'bg-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.6)]'
+                    cfg?.lifecycleStatus === 'VENUE_LIFECYCLE_STATUS_TERMINATED'
+                      ? 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.6)]'
                       : cfg?.lifecycleStatus === 'VENUE_LIFECYCLE_STATUS_SUNSETTING'
                       ? 'bg-orange-400 shadow-[0_0_8px_rgba(249,115,22,0.6)] animate-pulse'
-                      : 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.6)]'
+                      : cfg?.lifecycleStatus === 'VENUE_LIFECYCLE_STATUS_RESTRICTED_NEW'
+                      ? 'bg-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.6)]'
+                      : 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]'
                   }`}
-                  title={cfg?.lifecycleStatus || cfg?.status || 'INACTIVE'}
+                  title={cfg?.lifecycleStatus ? cfg.lifecycleStatus.replace('VENUE_LIFECYCLE_STATUS_', '') : 'ACTIVE'}
                 />
               </div>
               <div>
                 <div className="font-bold text-xs text-white truncate">{itemMeta.displayName.split(' ')[0]}</div>
                 <div className="text-[11px] font-mono text-slate-400 truncate mt-0.5">
-                  {cfg ? `${(cfg.rebateRateBps / 100).toFixed(1)}% Rebate` : 'Unconfigured'}
+                  {cfg ? `${(cfg.rebateRateBps / 100).toFixed(1)}% Rebate` : `${(itemMeta.key === 'EXCHANGE_HYPERLIQUID' ? 0.1 : 30).toFixed(1)}% Rebate`}
                 </div>
                 {cfg?.lifecycleStatus && cfg.lifecycleStatus !== 'VENUE_LIFECYCLE_STATUS_ACTIVE' && (
                   <div className={`mt-1 text-[9px] font-mono font-bold px-1.5 py-0.5 rounded inline-block uppercase border ${

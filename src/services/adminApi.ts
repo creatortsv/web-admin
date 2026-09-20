@@ -261,6 +261,61 @@ export interface PublicExchangeConfigDTO {
   allowNewBots?: boolean;
 }
 
+export function normalizeExchangeKey(raw: string): ExchangeKey {
+  const upper = (raw || '').toUpperCase().trim();
+  if (upper === 'BINANCE' || upper === 'EXCHANGE_BINANCE' || upper === 'BINANCE_SPOT' || upper === 'EXCHANGE_BINANCE_SPOT') {
+    return 'EXCHANGE_BINANCE_SPOT';
+  }
+  if (upper === 'BINANCE_FUTURES' || upper === 'EXCHANGE_BINANCE_FUTURES') {
+    return 'EXCHANGE_BINANCE_FUTURES';
+  }
+  if (upper === 'BYBIT' || upper === 'EXCHANGE_BYBIT') {
+    return 'EXCHANGE_BYBIT';
+  }
+  if (upper === 'BINGX' || upper === 'EXCHANGE_BINGX') {
+    return 'EXCHANGE_BINGX';
+  }
+  if (upper === 'BITGET' || upper === 'EXCHANGE_BITGET') {
+    return 'EXCHANGE_BITGET';
+  }
+  if (upper === 'HYPERLIQUID' || upper === 'EXCHANGE_HYPERLIQUID') {
+    return 'EXCHANGE_HYPERLIQUID';
+  }
+  if (upper === 'GMX' || upper === 'GMX_V2' || upper === 'EXCHANGE_GMX' || upper === 'EXCHANGE_GMX_V2') {
+    return 'EXCHANGE_GMX_V2';
+  }
+  return (upper.startsWith('EXCHANGE_') ? upper : `EXCHANGE_${upper}`) as ExchangeKey;
+}
+
+export function toProtoAttribution(at: AttributionType): string {
+  switch (at) {
+    case 'ATTRIBUTION_TYPE_SOURCE_KEY_HEADER':
+      return 'ATTRIBUTION_TYPE_HTTP_HEADER';
+    case 'ATTRIBUTION_TYPE_BUILDER_FEE':
+      return 'ATTRIBUTION_TYPE_BUILDER_TAG';
+    case 'ATTRIBUTION_TYPE_REFERRAL_CODE':
+    case 'ATTRIBUTION_TYPE_OAUTH_CHANNEL':
+      return 'ATTRIBUTION_TYPE_PAYLOAD_FIELD';
+    default:
+      return at || 'ATTRIBUTION_TYPE_CLIENT_ORDER_ID_PREFIX';
+  }
+}
+
+export function fromProtoAttribution(raw: string, ex?: ExchangeKey): AttributionType {
+  switch (raw) {
+    case 'ATTRIBUTION_TYPE_HTTP_HEADER':
+      return 'ATTRIBUTION_TYPE_SOURCE_KEY_HEADER';
+    case 'ATTRIBUTION_TYPE_BUILDER_TAG':
+      return 'ATTRIBUTION_TYPE_BUILDER_FEE';
+    case 'ATTRIBUTION_TYPE_PAYLOAD_FIELD':
+      return 'ATTRIBUTION_TYPE_REFERRAL_CODE';
+    default:
+      if (ex === 'EXCHANGE_BINGX') return 'ATTRIBUTION_TYPE_SOURCE_KEY_HEADER';
+      if (ex === 'EXCHANGE_HYPERLIQUID') return 'ATTRIBUTION_TYPE_BUILDER_FEE';
+      if (ex === 'EXCHANGE_GMX_V2') return 'ATTRIBUTION_TYPE_REFERRAL_CODE';
+      return (raw as AttributionType) || 'ATTRIBUTION_TYPE_CLIENT_ORDER_ID_PREFIX';
+  }
+}
 
 /**
  * Generates a W3C traceparent header: 00-{trace_id}-{span_id}-01
@@ -997,38 +1052,55 @@ export const adminApi = {
   // Broker & Rebate Governance Methods
   getBrokerConfigs: async (): Promise<BrokerConfigDTO[]> => {
     try {
-      const res = await adminFetch('/v1/admin/broker-configs');
+      const res = await adminFetch('/v1/admin/broker-configs?include_inactive=true');
       if (res.ok) {
         const data = await res.json();
         if (data.configs && Array.isArray(data.configs)) {
-          const mapped: BrokerConfigDTO[] = data.configs.map((c: any) => ({
-            id: c.id,
-            exchange: (c.exchange?.toUpperCase().startsWith('EXCHANGE_') ? c.exchange : `EXCHANGE_${c.exchange?.toUpperCase()}`) as ExchangeKey,
-            environment: c.environment || 'production',
-            attributionType: (c.attribution_type || 'ATTRIBUTION_TYPE_CLIENT_ORDER_ID_PREFIX') as AttributionType,
-            status: (c.is_active ? 'BROKER_CONFIG_STATUS_ACTIVE' : 'BROKER_CONFIG_STATUS_INACTIVE') as BrokerConfigStatus,
-            lifecycleStatus: (c.lifecycle_status || (c.is_active ? 'VENUE_LIFECYCLE_STATUS_ACTIVE' : 'VENUE_LIFECYCLE_STATUS_TERMINATED')) as VenueLifecycleStatus,
-            sunsetDeadline: c.sunset_deadline ? (typeof c.sunset_deadline === 'string' ? c.sunset_deadline : new Date(c.sunset_deadline.seconds * 1000).toISOString()) : null,
-            sunsetNotice: c.sunset_notice || null,
-            maskedIdentifier: c.masked_identifier || '***',
-            isKmsSealed: c.has_encrypted_secrets ?? true,
-            rebateRateBps: Math.round((c.rebate_percentage || 0) * 100),
-            rebatePercentage: c.rebate_percentage,
-            clientOrderIdPrefix: c.client_order_id_prefix,
-            headerKey: c.header_key,
-            headerValue: c.header_value,
-            payloadParams: c.payload_params,
-            payoutAddress: c.payout_address,
-            version: c.version || 1,
-            updatedAt: c.updated_at ? (typeof c.updated_at === 'string' ? c.updated_at : new Date(c.updated_at.seconds * 1000).toISOString()) : new Date().toISOString(),
-            updatedBy: c.updated_by || 'system',
-            notes: c.notes || '',
-            extraParams: c.payload_params || {},
-          }));
-          if (typeof window !== 'undefined' && mapped.length > 0) {
-            localStorage.setItem('vf_admin_broker_configs', JSON.stringify(mapped));
+          const mapped: BrokerConfigDTO[] = data.configs.map((c: any) => {
+            const ex = normalizeExchangeKey(c.exchange);
+            return {
+              id: c.id,
+              exchange: ex,
+              environment: c.environment || 'production',
+              attributionType: fromProtoAttribution(c.attribution_type, ex),
+              status: (c.is_active ? 'BROKER_CONFIG_STATUS_ACTIVE' : 'BROKER_CONFIG_STATUS_INACTIVE') as BrokerConfigStatus,
+              lifecycleStatus: (c.lifecycle_status || (c.is_active ? 'VENUE_LIFECYCLE_STATUS_ACTIVE' : 'VENUE_LIFECYCLE_STATUS_TERMINATED')) as VenueLifecycleStatus,
+              sunsetDeadline: c.sunset_deadline ? (typeof c.sunset_deadline === 'string' ? c.sunset_deadline : new Date(c.sunset_deadline.seconds * 1000).toISOString()) : null,
+              sunsetNotice: c.sunset_notice || null,
+              maskedIdentifier: c.masked_identifier || '***',
+              isKmsSealed: c.has_encrypted_secrets ?? true,
+              rebateRateBps: Math.round((c.rebate_percentage || 0) * 100),
+              rebatePercentage: c.rebate_percentage,
+              clientOrderIdPrefix: c.client_order_id_prefix,
+              headerKey: c.header_key,
+              headerValue: c.header_value,
+              payloadParams: c.payload_params,
+              payoutAddress: c.payout_address,
+              version: c.version || 1,
+              updatedAt: c.updated_at ? (typeof c.updated_at === 'string' ? c.updated_at : new Date(c.updated_at.seconds * 1000).toISOString()) : new Date().toISOString(),
+              updatedBy: c.updated_by || 'system',
+              notes: c.notes || '',
+              extraParams: c.payload_params || {},
+            };
+          });
+
+          // Canonical merge: Ensure all 7 supported venues always exist
+          const merged = INITIAL_BROKER_CONFIGS.map((initCfg) => {
+            const found = mapped.find((m) => m.exchange === initCfg.exchange);
+            return found ? { ...initCfg, ...found } : initCfg;
+          });
+
+          // Append any custom venue not present in baseline
+          for (const m of mapped) {
+            if (!merged.some((item) => item.exchange === m.exchange)) {
+              merged.push(m);
+            }
           }
-          return mapped;
+
+          if (typeof window !== 'undefined' && merged.length > 0) {
+            localStorage.setItem('vf_admin_broker_configs', JSON.stringify(merged));
+          }
+          return merged;
         }
       } else {
         console.warn(`[adminApi.getBrokerConfigs] API returned status ${res.status}`);
@@ -1045,7 +1117,9 @@ export const adminApi = {
   },
 
   getBrokerConfig: async (exchange: ExchangeKey): Promise<BrokerConfigDTO | null> => {
-    const exchangeSlug = exchange.replace(/^EXCHANGE_/, '').toLowerCase();
+    let exchangeSlug = exchange.replace(/^EXCHANGE_/, '').toLowerCase();
+    if (exchangeSlug === 'binance_spot') exchangeSlug = 'binance';
+    if (exchangeSlug === 'gmx_v2') exchangeSlug = 'gmx_v2';
     try {
       const res = await adminFetch(`/v1/admin/broker-configs/${encodeURIComponent(exchangeSlug)}`);
       if (res.ok) {
@@ -1101,9 +1175,12 @@ export const adminApi = {
   },
 
   updateBrokerConfig: async (req: UpdateBrokerConfigRequest): Promise<BrokerConfigDTO> => {
-    const exchangeSlug = req.exchange.replace(/^EXCHANGE_/, '').toLowerCase();
+    let exchangeSlug = req.exchange.replace(/^EXCHANGE_/, '').toLowerCase();
+    if (exchangeSlug === 'binance_spot') exchangeSlug = 'binance';
+    if (exchangeSlug === 'gmx_v2') exchangeSlug = 'gmx_v2';
     const rebatePct = req.rebatePercentage !== undefined ? req.rebatePercentage : (req.rebateRateBps ? req.rebateRateBps / 100 : 0);
     const targetId = req.id || exchangeSlug;
+    const protoAttribution = toProtoAttribution(req.attributionType);
 
     try {
       const res = await adminFetch(`/v1/admin/broker-configs/${encodeURIComponent(targetId)}`, {
@@ -1115,7 +1192,7 @@ export const adminApi = {
           environment: req.environment || 'production',
           broker_id: req.rawIdentifier,
           client_order_id_prefix: req.clientOrderIdPrefix || '',
-          attribution_type: req.attributionType,
+          attribution_type: protoAttribution,
           header_key: req.headerKey || '',
           header_value: req.headerValue || '',
           payload_params: req.payloadParams || req.extraParams || {},

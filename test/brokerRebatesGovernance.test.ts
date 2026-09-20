@@ -1,11 +1,19 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { adminApi, INITIAL_BROKER_CONFIGS, INITIAL_PUBLIC_EXCHANGE_CONFIGS } from '../src/services/adminApi';
 
 describe('Broker & Rebate Governance API', () => {
+  const originalFetch = global.fetch;
+
   beforeEach(() => {
     if (typeof window !== 'undefined') {
       localStorage.clear();
     }
+    // Default fetch mock to offline to ensure isolated fallback testing
+    global.fetch = vi.fn().mockRejectedValue(new Error('Network offline'));
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
   });
 
   it('lists default broker configs across all supported exchange venues', async () => {
@@ -155,5 +163,48 @@ describe('Broker & Rebate Governance API', () => {
       const binance = parsed.find((c: any) => c.exchange === 'EXCHANGE_BINANCE_SPOT');
       expect(binance?.lifecycleStatus).toBe('VENUE_LIFECYCLE_STATUS_TERMINATED');
     }
+  });
+
+  it('persists TERMINATED lifecycle status across reloads and merges with canonical baseline', async () => {
+    const mockConfigs = [
+      {
+        id: 'cfg_binance_1',
+        exchange: 'binance',
+        is_active: false,
+        lifecycle_status: 'VENUE_LIFECYCLE_STATUS_TERMINATED',
+        sunset_notice: 'Decommissioned by operator',
+        version: 3,
+        rebate_percentage: 0.3,
+      },
+      {
+        id: 'cfg_hyperliquid_1',
+        exchange: 'hyperliquid',
+        is_active: true,
+        lifecycle_status: 'VENUE_LIFECYCLE_STATUS_ACTIVE',
+        version: 1,
+        rebate_percentage: 0.1,
+      },
+    ];
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ configs: mockConfigs }),
+    } as Response);
+
+    const configs = await adminApi.getBrokerConfigs();
+    expect(configs.length).toBeGreaterThanOrEqual(7);
+
+    const binance = configs.find((c) => c.exchange === 'EXCHANGE_BINANCE_SPOT');
+    expect(binance).toBeDefined();
+    expect(binance?.lifecycleStatus).toBe('VENUE_LIFECYCLE_STATUS_TERMINATED');
+    expect(binance?.status).toBe('BROKER_CONFIG_STATUS_INACTIVE');
+
+    const hl = configs.find((c) => c.exchange === 'EXCHANGE_HYPERLIQUID');
+    expect(hl).toBeDefined();
+    expect(hl?.lifecycleStatus).toBe('VENUE_LIFECYCLE_STATUS_ACTIVE');
+
+    const bybit = configs.find((c) => c.exchange === 'EXCHANGE_BYBIT');
+    expect(bybit).toBeDefined();
+    expect(bybit?.lifecycleStatus).toBe('VENUE_LIFECYCLE_STATUS_ACTIVE');
   });
 });
