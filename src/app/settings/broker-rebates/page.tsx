@@ -6,8 +6,11 @@ import {
   BrokerConfigDTO,
   ExchangeKey,
   AttributionType,
+  ATTRIBUTION_TYPE,
   BrokerConfigStatus,
+  BROKER_CONFIG_STATUS,
   VenueLifecycleStatus,
+  VENUE_LIFECYCLE_STATUS,
   TestBrokerAttributionResponse,
 } from '@/services/adminApi';
 import {
@@ -66,7 +69,7 @@ const VENUE_METADATA: Record<ExchangeKey, ExchangeMeta> = {
     badgeBg: 'bg-sky-500/10',
     badgeBorder: 'border-sky-500/30',
     badgeText: 'text-sky-400',
-    defaultAttribution: 'ATTRIBUTION_TYPE_SOURCE_KEY_HEADER',
+    defaultAttribution: ATTRIBUTION_TYPE.HTTP_HEADER,
     identifierLabel: 'Broker Source Key (X-SOURCE-KEY)',
     identifierPlaceholder: 'e.g. BX-AI-SKILL or institutional token',
     hasSecret: true,
@@ -219,44 +222,6 @@ Best regards,
 Venom Finance Management`,
     },
   },
-  EXCHANGE_BITGET: {
-    key: 'EXCHANGE_BITGET',
-    displayName: 'Bitget (Unified)',
-    category: 'CEX',
-    brandColor: '#00F0FF',
-    badgeBg: 'bg-cyan-500/10',
-    badgeBorder: 'border-cyan-500/30',
-    badgeText: 'text-cyan-300',
-    defaultAttribution: 'ATTRIBUTION_TYPE_REFERRAL_CODE',
-    identifierLabel: 'Broker / Channel Code',
-    identifierPlaceholder: 'e.g. venom or channel identifier',
-    hasSecret: false,
-    contactEmail: 'broker@bitget.com',
-    portalUrl: 'https://www.bitget.com/account/newapi',
-    programName: 'Bitget Global Broker Program',
-    description: 'Channel code passed in order placement payload or clientOrderId for institutional revenue share.',
-    onboardingSteps: [
-      'Apply to Bitget Broker Program via broker@bitget.com.',
-      'Receive official broker channel code.',
-      'Enter and KMS seal the code below.',
-    ],
-    emailTemplate: {
-      subject: 'Bitget Broker Partnership Application — Venom Finance',
-      body: `Dear Bitget Broker Team,
-
-Venom Finance is applying for the Bitget Global Broker Program.
-We are rolling out copy-trading and grid bot features for Bitget Spot & Futures.
-
-Platform: Venom Finance
-Expected Monthly Volume: $3M - $10M USD
-Static IPs: 34.118.24.10, 34.118.24.11
-
-Kindly send the broker agreement and Channel Code.
-
-Best regards,
-Venom Finance Team`,
-    },
-  },
   EXCHANGE_HYPERLIQUID: {
     key: 'EXCHANGE_HYPERLIQUID',
     displayName: 'Hyperliquid L1 (Spot & Perps)',
@@ -265,7 +230,7 @@ Venom Finance Team`,
     badgeBg: 'bg-teal-500/10',
     badgeBorder: 'border-teal-500/30',
     badgeText: 'text-teal-300',
-    defaultAttribution: 'ATTRIBUTION_TYPE_BUILDER_FEE',
+    defaultAttribution: ATTRIBUTION_TYPE.BUILDER_TAG,
     identifierLabel: 'Builder EVM Recipient Address (0x...)',
     identifierPlaceholder: '0xYourColdMultiSigVault42HexCharacters...',
     hasSecret: false,
@@ -287,7 +252,7 @@ Venom Finance Team`,
     badgeBg: 'bg-indigo-500/10',
     badgeBorder: 'border-indigo-500/30',
     badgeText: 'text-indigo-400',
-    defaultAttribution: 'ATTRIBUTION_TYPE_REFERRAL_CODE',
+    defaultAttribution: ATTRIBUTION_TYPE.PAYLOAD_FIELD,
     identifierLabel: 'On-Chain Referral Code / Affiliate Key',
     identifierPlaceholder: 'e.g. venom or your registered referral code',
     hasSecret: false,
@@ -481,16 +446,16 @@ export default function BrokerRebatesPage() {
         id: activeConfig?.id,
         exchange: selectedExchange,
         attributionType: (selectedExchange === 'EXCHANGE_HYPERLIQUID'
-          ? 'ATTRIBUTION_TYPE_BUILDER_FEE'
+          ? ATTRIBUTION_TYPE.BUILDER_TAG
           : selectedExchange === 'EXCHANGE_GMX_V2'
-          ? 'ATTRIBUTION_TYPE_REFERRAL_CODE'
+          ? ATTRIBUTION_TYPE.PAYLOAD_FIELD
           : attributionType),
-        rawIdentifier: rawIdentifier || activeConfig?.maskedIdentifier || (selectedExchange === 'EXCHANGE_HYPERLIQUID' ? '0x0000000000000000000000000000000000000000' : 'x-VF-'),
+        rawIdentifier: rawIdentifier || (!activeConfig?.maskedIdentifier?.includes('*') ? activeConfig?.maskedIdentifier : '') || (selectedExchange === 'EXCHANGE_HYPERLIQUID' ? (activeConfig?.payoutAddress || '0x1122334455667788990011223344556677889900') : 'x-VF-'),
         rawSecret: rawSecret || undefined,
-        status: (lifecycleStatus === 'VENUE_LIFECYCLE_STATUS_TERMINATED' ? 'BROKER_CONFIG_STATUS_INACTIVE' : 'BROKER_CONFIG_STATUS_ACTIVE'),
+        status: (lifecycleStatus === VENUE_LIFECYCLE_STATUS.TERMINATED ? BROKER_CONFIG_STATUS.INACTIVE : BROKER_CONFIG_STATUS.ACTIVE),
         lifecycleStatus,
-        sunsetDeadline: lifecycleStatus === 'VENUE_LIFECYCLE_STATUS_SUNSETTING' && sunsetDeadline ? new Date(sunsetDeadline).toISOString() : null,
-        sunsetNotice: lifecycleStatus === 'VENUE_LIFECYCLE_STATUS_SUNSETTING' ? sunsetNotice : null,
+        sunsetDeadline: lifecycleStatus === VENUE_LIFECYCLE_STATUS.SUNSETTING && sunsetDeadline ? new Date(sunsetDeadline).toISOString() : null,
+        sunsetNotice: lifecycleStatus === VENUE_LIFECYCLE_STATUS.SUNSETTING ? sunsetNotice : null,
         rebateRateBps: Math.round(rebateRatePercent * 100),
         rebatePercentage: rebateRatePercent,
         clientOrderIdPrefix,
@@ -546,26 +511,36 @@ export default function BrokerRebatesPage() {
   };
 
   const handleQuickLifecycleToggle = async (newLifecycle: VenueLifecycleStatus) => {
-    if (newLifecycle === 'VENUE_LIFECYCLE_STATUS_TERMINATED') {
+    if (newLifecycle === VENUE_LIFECYCLE_STATUS.TERMINATED) {
       setShowTerminatedModal(true);
       return;
     }
     setLifecycleStatus(newLifecycle);
-    const newStatus: BrokerConfigStatus = 'BROKER_CONFIG_STATUS_ACTIVE';
+    const newStatus: BrokerConfigStatus = BROKER_CONFIG_STATUS.ACTIVE;
     setStatus(newStatus);
 
     let nextDeadline = sunsetDeadline;
-    if (newLifecycle === 'VENUE_LIFECYCLE_STATUS_SUNSETTING' && !sunsetDeadline) {
+    if (newLifecycle === VENUE_LIFECYCLE_STATUS.SUNSETTING && !sunsetDeadline) {
       const d = new Date();
       d.setDate(d.getDate() + 14);
       nextDeadline = d.toISOString().slice(0, 16);
       setSunsetDeadline(nextDeadline);
     }
 
-    const fallbackPrefix = meta.key === 'EXCHANGE_BINGX' ? 'BX-AI-SKILL' : 'x-VF-';
-    const rawIdent = activeConfig?.maskedIdentifier && activeConfig.maskedIdentifier !== '***'
+    const fallbackPrefix = meta.key === 'EXCHANGE_BINGX'
+      ? 'BX-AI-SKILL'
+      : meta.key === 'EXCHANGE_HYPERLIQUID'
+      ? (activeConfig?.payoutAddress || activeConfig?.extraParams?.builder || '0x1122334455667788990011223344556677889900')
+      : 'x-VF-';
+    const rawIdent = activeConfig?.maskedIdentifier && !activeConfig.maskedIdentifier.includes('*')
       ? activeConfig.maskedIdentifier
       : fallbackPrefix;
+
+    const extraParams = { ...(activeConfig?.extraParams || {}) };
+    if (selectedExchange === 'EXCHANGE_HYPERLIQUID') {
+      extraParams['builder'] = rawIdent;
+      if (!extraParams['fee']) extraParams['fee'] = '10';
+    }
 
     try {
       const updated = await adminApi.updateBrokerConfig({
@@ -573,14 +548,16 @@ export default function BrokerRebatesPage() {
         exchange: selectedExchange,
         attributionType: activeConfig?.attributionType || meta.defaultAttribution,
         rawIdentifier: rawIdent,
+        payoutAddress: selectedExchange === 'EXCHANGE_HYPERLIQUID' ? rawIdent : (activeConfig?.payoutAddress || ''),
         status: newStatus,
         lifecycleStatus: newLifecycle,
-        sunsetDeadline: newLifecycle === 'VENUE_LIFECYCLE_STATUS_SUNSETTING' && nextDeadline ? new Date(nextDeadline).toISOString() : null,
-        sunsetNotice: newLifecycle === 'VENUE_LIFECYCLE_STATUS_SUNSETTING' ? (sunsetNotice || 'Venue entering sunset phase. Migrations advised.') : null,
+        sunsetDeadline: newLifecycle === VENUE_LIFECYCLE_STATUS.SUNSETTING && nextDeadline ? new Date(nextDeadline).toISOString() : null,
+        sunsetNotice: newLifecycle === VENUE_LIFECYCLE_STATUS.SUNSETTING ? (sunsetNotice || 'Venue entering sunset phase. Migrations advised.') : null,
         rebateRateBps: activeConfig?.rebateRateBps || 3000,
         expectedVersion: activeConfig?.version || 0,
         notes: activeConfig?.notes || `Lifecycle updated to ${newLifecycle}`,
-        extraParams: activeConfig?.extraParams || {},
+        payloadParams: extraParams,
+        extraParams,
       });
       setConfigs((prev) => {
         const idx = prev.findIndex((c) => c.exchange === selectedExchange);
@@ -598,13 +575,23 @@ export default function BrokerRebatesPage() {
 
   const handleConfirmDecommission = async () => {
     setShowTerminatedModal(false);
-    setLifecycleStatus('VENUE_LIFECYCLE_STATUS_TERMINATED');
-    setStatus('BROKER_CONFIG_STATUS_INACTIVE');
+    setLifecycleStatus(VENUE_LIFECYCLE_STATUS.TERMINATED);
+    setStatus(BROKER_CONFIG_STATUS.INACTIVE);
 
-    const fallbackPrefix = meta.key === 'EXCHANGE_BINGX' ? 'BX-AI-SKILL' : 'x-VF-';
-    const rawIdent = activeConfig?.maskedIdentifier && activeConfig.maskedIdentifier !== '***'
+    const fallbackPrefix = meta.key === 'EXCHANGE_BINGX'
+      ? 'BX-AI-SKILL'
+      : meta.key === 'EXCHANGE_HYPERLIQUID'
+      ? (activeConfig?.payoutAddress || activeConfig?.extraParams?.builder || '0x1122334455667788990011223344556677889900')
+      : 'x-VF-';
+    const rawIdent = activeConfig?.maskedIdentifier && !activeConfig.maskedIdentifier.includes('*')
       ? activeConfig.maskedIdentifier
       : fallbackPrefix;
+
+    const extraParams = { ...(activeConfig?.extraParams || {}) };
+    if (selectedExchange === 'EXCHANGE_HYPERLIQUID') {
+      extraParams['builder'] = rawIdent;
+      if (!extraParams['fee']) extraParams['fee'] = '10';
+    }
 
     try {
       const updated = await adminApi.updateBrokerConfig({
@@ -612,14 +599,16 @@ export default function BrokerRebatesPage() {
         exchange: selectedExchange,
         attributionType: activeConfig?.attributionType || meta.defaultAttribution,
         rawIdentifier: rawIdent,
-        status: 'BROKER_CONFIG_STATUS_INACTIVE',
-        lifecycleStatus: 'VENUE_LIFECYCLE_STATUS_TERMINATED',
+        payoutAddress: selectedExchange === 'EXCHANGE_HYPERLIQUID' ? rawIdent : (activeConfig?.payoutAddress || ''),
+        status: BROKER_CONFIG_STATUS.INACTIVE,
+        lifecycleStatus: VENUE_LIFECYCLE_STATUS.TERMINATED,
         sunsetDeadline: null,
         sunsetNotice: 'Venue decommissioned by operator. Automated graceful soft-stop enforced.',
         rebateRateBps: activeConfig?.rebateRateBps || 3000,
         expectedVersion: activeConfig?.version || 0,
         notes: activeConfig?.notes || 'Venue decommissioned by operator. Automated graceful soft-stop enforced.',
-        extraParams: activeConfig?.extraParams || {},
+        payloadParams: extraParams,
+        extraParams,
       });
       setConfigs((prev) => {
         const idx = prev.findIndex((c) => c.exchange === selectedExchange);
@@ -1121,7 +1110,7 @@ export default function BrokerRebatesPage() {
                   </div>
                 </div>
               ) : (
-                /* Standard CEX Section (BingX, Binance, Bybit, Bitget) */
+                /* Standard CEX Section (BingX, Binance, Bybit) */
                 <div className="space-y-6">
                   {/* Attribution Type Radio/Select */}
                   <div>
@@ -1130,9 +1119,9 @@ export default function BrokerRebatesPage() {
                     </label>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
                       {[
-                        { type: 'ATTRIBUTION_TYPE_SOURCE_KEY_HEADER', title: 'HTTP Header (X-SOURCE-KEY)', desc: 'BingX, OKX' },
-                        { type: 'ATTRIBUTION_TYPE_CLIENT_ORDER_ID_PREFIX', title: 'Client Order ID Prefix', desc: 'Binance Link, Bybit orderLinkId' },
-                        { type: 'ATTRIBUTION_TYPE_REFERRAL_CODE', title: 'Channel / Referral Code', desc: 'Bitget, OKX Broker' },
+                        { type: ATTRIBUTION_TYPE.HTTP_HEADER, title: 'HTTP Header (X-SOURCE-KEY)', desc: 'BingX institutional header' },
+                        { type: ATTRIBUTION_TYPE.CLIENT_ORDER_ID_PREFIX, title: 'Client Order ID Prefix', desc: 'Binance Link, Bybit orderLinkId' },
+                        { type: ATTRIBUTION_TYPE.PAYLOAD_FIELD, title: 'Payload Parameter', desc: 'GMX v2 referral code / payload' },
                       ].map((mech) => {
                         const checked = attributionType === mech.type;
                         return (
@@ -1204,7 +1193,7 @@ export default function BrokerRebatesPage() {
                   )}
 
                   {/* Secondary Client Order ID Prefix for BingX */}
-                  {attributionType === 'ATTRIBUTION_TYPE_SOURCE_KEY_HEADER' && (
+                  {attributionType === ATTRIBUTION_TYPE.HTTP_HEADER && (
                     <div>
                       <label className="block text-xs font-mono uppercase tracking-wider text-slate-300 mb-1.5">
                         Dual-Attribution Client Order ID Prefix

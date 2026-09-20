@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { adminApi, INITIAL_BROKER_CONFIGS, INITIAL_PUBLIC_EXCHANGE_CONFIGS } from '../src/services/adminApi';
+import { ATTRIBUTION_TYPE } from '../src/types/contracts/brokerConfig';
 
 describe('Broker & Rebate Governance API', () => {
   const originalFetch = global.fetch;
@@ -16,19 +17,20 @@ describe('Broker & Rebate Governance API', () => {
     global.fetch = originalFetch;
   });
 
-  it('lists default broker configs across all supported exchange venues', async () => {
+  it('lists default broker configs across all supported exchange venues (Bitget removed)', async () => {
     const configs = await adminApi.getBrokerConfigs();
-    expect(configs.length).toBeGreaterThanOrEqual(7);
+    expect(configs.length).toBe(6);
+    expect(configs.some((c) => (c.exchange as string) === 'EXCHANGE_BITGET')).toBe(false);
 
     const bingx = configs.find((c) => c.exchange === 'EXCHANGE_BINGX');
     expect(bingx).toBeDefined();
-    expect(bingx?.attributionType).toBe('ATTRIBUTION_TYPE_SOURCE_KEY_HEADER');
+    expect(bingx?.attributionType).toBe(ATTRIBUTION_TYPE.HTTP_HEADER);
     expect(bingx?.rebateRateBps).toBe(4500); // 45%
     expect(bingx?.isKmsSealed).toBe(true);
 
     const hl = configs.find((c) => c.exchange === 'EXCHANGE_HYPERLIQUID');
     expect(hl).toBeDefined();
-    expect(hl?.attributionType).toBe('ATTRIBUTION_TYPE_BUILDER_FEE');
+    expect(hl?.attributionType).toBe(ATTRIBUTION_TYPE.BUILDER_TAG);
     expect(hl?.rebateRateBps).toBe(10); // 0.1%
 
     const binance = configs.find((c) => c.exchange === 'EXCHANGE_BINANCE_SPOT');
@@ -46,7 +48,7 @@ describe('Broker & Rebate Governance API', () => {
   it('updates and seals broker config with version incrementation', async () => {
     const updated = await adminApi.updateBrokerConfig({
       exchange: 'EXCHANGE_BINGX',
-      attributionType: 'ATTRIBUTION_TYPE_SOURCE_KEY_HEADER',
+      attributionType: ATTRIBUTION_TYPE.HTTP_HEADER,
       rawIdentifier: 'BX-CUSTOM-PROD-KEY-999',
       rawSecret: 'secret_partner_salt',
       status: 'BROKER_CONFIG_STATUS_ACTIVE',
@@ -80,7 +82,7 @@ describe('Broker & Rebate Governance API', () => {
     const evmAddress = '0x1122334455667788990011223344556677889900';
     const updated = await adminApi.updateBrokerConfig({
       exchange: 'EXCHANGE_HYPERLIQUID',
-      attributionType: 'ATTRIBUTION_TYPE_BUILDER_FEE',
+      attributionType: ATTRIBUTION_TYPE.BUILDER_TAG,
       rawIdentifier: evmAddress,
       payoutAddress: evmAddress,
       status: 'BROKER_CONFIG_STATUS_ACTIVE',
@@ -92,7 +94,7 @@ describe('Broker & Rebate Governance API', () => {
     });
 
     expect(updated.exchange).toBe('EXCHANGE_HYPERLIQUID');
-    expect(updated.attributionType).toBe('ATTRIBUTION_TYPE_BUILDER_FEE');
+    expect(updated.attributionType).toBe(ATTRIBUTION_TYPE.BUILDER_TAG);
     expect(updated.payoutAddress).toBe(evmAddress);
     expect(updated.rebateRateBps).toBe(10);
     expect(updated.extraParams?.['builder']).toBe(evmAddress);
@@ -112,9 +114,10 @@ describe('Broker & Rebate Governance API', () => {
     expect(res.attributionLatencyNanos).toBeLessThan(1000); // <1μs SLA
   });
 
-  it('retrieves public exchange configs with Cloud NAT egress IPs', async () => {
+  it('retrieves public exchange configs with Cloud NAT egress IPs (6 venues)', async () => {
     const publicConfigs = await adminApi.getPublicExchangeConfigs();
-    expect(publicConfigs.length).toBeGreaterThanOrEqual(7);
+    expect(publicConfigs.length).toBe(6);
+    expect(publicConfigs.some((c) => (c.exchange as string) === 'EXCHANGE_BITGET')).toBe(false);
 
     const bingx = publicConfigs.find((c) => c.exchange === 'EXCHANGE_BINGX');
     expect(bingx).toBeDefined();
@@ -192,7 +195,7 @@ describe('Broker & Rebate Governance API', () => {
     } as Response);
 
     const configs = await adminApi.getBrokerConfigs();
-    expect(configs.length).toBeGreaterThanOrEqual(7);
+    expect(configs.length).toBe(6);
 
     const binance = configs.find((c) => c.exchange === 'EXCHANGE_BINANCE_SPOT');
     expect(binance).toBeDefined();
@@ -206,5 +209,41 @@ describe('Broker & Rebate Governance API', () => {
     const bybit = configs.find((c) => c.exchange === 'EXCHANGE_BYBIT');
     expect(bybit).toBeDefined();
     expect(bybit?.lifecycleStatus).toBe('VENUE_LIFECYCLE_STATUS_ACTIVE');
+  });
+
+  it('correctly parses canonical Protobuf lowerCamelCase wire contract without coercing isActive to false', async () => {
+    // Exact lowerCamelCase format emitted by gRPC-Gateway
+    const protoWireConfigs = [
+      {
+        id: 'cfg_hyperliquid_live',
+        exchange: 'hyperliquid',
+        environment: 'production',
+        brokerId: '0x1122334455667788990011223344556677889900',
+        attributionType: 'ATTRIBUTION_TYPE_BUILDER_TAG',
+        rebatePercentage: 0.1,
+        payoutAddress: '0x1122334455667788990011223344556677889900',
+        isActive: true,
+        lifecycleStatus: 'VENUE_LIFECYCLE_STATUS_ACTIVE',
+        version: 2,
+        maskedIdentifier: '0x1122***900',
+        hasEncryptedSecrets: false,
+      },
+    ];
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ configs: protoWireConfigs }),
+    } as Response);
+
+    const configs = await adminApi.getBrokerConfigs();
+    const hl = configs.find((c) => c.exchange === 'EXCHANGE_HYPERLIQUID');
+
+    expect(hl).toBeDefined();
+    expect(hl?.status).toBe('BROKER_CONFIG_STATUS_ACTIVE');
+    expect(hl?.lifecycleStatus).toBe('VENUE_LIFECYCLE_STATUS_ACTIVE');
+    expect(hl?.maskedIdentifier).toBe('0x1122***900');
+    expect(hl?.rebatePercentage).toBe(0.1);
+    expect(hl?.rebateRateBps).toBe(10);
+    expect(hl?.payoutAddress).toBe('0x1122334455667788990011223344556677889900');
   });
 });
