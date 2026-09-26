@@ -71,7 +71,14 @@ export default function UsersPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
-              {filtered.map((u) => (
+              {filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-12 text-center text-slate-400 font-mono text-xs">
+                    No registered user accounts found. Real-time database cluster is ready for onboarding.
+                  </td>
+                </tr>
+              ) : (
+                filtered.map((u) => (
                 <tr key={u.id} className="hover:bg-slate-900/40 transition-colors">
                   <td className="py-4 px-6">
                     <div className="flex items-center gap-3">
@@ -138,7 +145,7 @@ export default function UsersPage() {
                     </button>
                   </td>
                 </tr>
-              ))}
+              )))}
             </tbody>
           </table>
         </div>

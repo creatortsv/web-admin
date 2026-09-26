@@ -147,7 +147,7 @@ export interface CreateCompensationClaimPayload {
   userId: string;
   amountCents: number;
   reason: string;
-  evidencePayload: string;
+  evidencePayload?: string;
 }
 
 import {
@@ -159,9 +159,11 @@ import {
   BrokerConfigStatusContract,
   BrokerConfigWireDTO,
   UpdateBrokerConfigWireRequest,
+  DecommissionProposal,
 } from '../types/contracts/brokerConfig';
 
 export { ATTRIBUTION_TYPE, VENUE_LIFECYCLE_STATUS, BROKER_CONFIG_STATUS };
+export type { DecommissionProposal };
 
 export type ExchangeKey =
   | 'EXCHANGE_BINANCE_SPOT'
@@ -200,6 +202,7 @@ export interface BrokerConfigDTO {
   updatedBy: string;
   notes: string;
   extraParams?: Record<string, string>;
+  decommissionProposal?: DecommissionProposal | null;
 }
 
 export interface UpdateBrokerConfigRequest {
@@ -371,6 +374,20 @@ export function parseBrokerConfigWire(c: any, fallbackExchange?: ExchangeKey): B
   const notes = c.notes || '';
   const rawAttribution = c.attributionType !== undefined ? c.attributionType : c.attribution_type;
 
+  let decommissionProposal: DecommissionProposal | undefined = undefined;
+  const rawProposal = c.decommissionProposal || c.decommission_proposal;
+  if (rawProposal && typeof rawProposal === 'object') {
+    decommissionProposal = {
+      proposedBy: String(rawProposal.proposedBy || rawProposal.proposed_by || ''),
+      proposedAt: String(rawProposal.proposedAt || rawProposal.proposed_at || new Date().toISOString()),
+      reason: String(rawProposal.reason || ''),
+      status: (rawProposal.status || 'PENDING_APPROVAL') as DecommissionProposal['status'],
+      approvedBy: rawProposal.approvedBy || rawProposal.approved_by ? String(rawProposal.approvedBy || rawProposal.approved_by) : undefined,
+      approvedAt: rawProposal.approvedAt || rawProposal.approved_at ? String(rawProposal.approvedAt || rawProposal.approved_at) : undefined,
+      rejectionReason: rawProposal.rejectionReason || rawProposal.rejection_reason ? String(rawProposal.rejectionReason || rawProposal.rejection_reason) : undefined,
+    };
+  }
+
   return {
     id: c.id,
     exchange: ex,
@@ -394,6 +411,7 @@ export function parseBrokerConfigWire(c: any, fallbackExchange?: ExchangeKey): B
     updatedBy,
     notes,
     extraParams: payloadParams,
+    decommissionProposal,
   };
 }
 
@@ -433,93 +451,59 @@ export async function adminFetch(input: RequestInfo | URL, init?: RequestInit): 
   });
 }
 
-// Initial Mock Datasets for standalone back-office operation with real persistence in localStorage
-export let INITIAL_VAULTS: TreasuryVault[] = [
-  {
-    id: 'vault-trc20',
-    chain: 'TRON (TRC20)',
-    asset: 'USDT',
-    receivingAddress: 'TLv9nSmL1VemB31bN5k3z9fH8E8qZ1v9nM',
-    coldSweepAddress: 'TXYZ99MultiSigColdStorageVaultTRC20',
-    minDepositUsd: 10,
-    sweepThresholdUsd: 2500,
-    currentBalanceUsd: 1420.5,
-    isActive: true,
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    id: 'vault-erc20',
-    chain: 'Ethereum (ERC20)',
-    asset: 'USDT',
-    receivingAddress: '0x71C0Ff3D408E97C2fCE5fC9b59C3E569C8E82245',
-    coldSweepAddress: '0x123456789012345678901234567890123456ColdSafe',
-    minDepositUsd: 50,
-    sweepThresholdUsd: 5000,
-    currentBalanceUsd: 3840.0,
-    isActive: true,
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    id: 'vault-sol',
-    chain: 'Solana (SPL)',
-    asset: 'USDT',
-    receivingAddress: 'VnmZ4J9eK2bYQ8eT7w3zN1k5j6r9mX4s2v1pL9bK2mQ',
-    coldSweepAddress: 'SolColdSquadsMultiSigVaultAddress8899',
-    minDepositUsd: 10,
-    sweepThresholdUsd: 1500,
-    currentBalanceUsd: 620.0,
-    isActive: true,
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    id: 'vault-arbitrum',
-    chain: 'Arbitrum One',
-    asset: 'USDT',
-    receivingAddress: '0x71C0Ff3D408E97C2fCE5fC9b59C3E569C8E82245',
-    coldSweepAddress: '0xArbitrumMultiSigColdGnosisSafe9999',
-    minDepositUsd: 10,
-    sweepThresholdUsd: 2000,
-    currentBalanceUsd: 890.0,
-    isActive: true,
-    updatedAt: new Date().toISOString(),
-  },
-];
+const memoryStorage = new Map<string, string>();
 
-export const INITIAL_PAYMENTS: PaymentGatewayConfig[] = [
-  {
-    id: 'pay-crypto-direct',
-    name: 'Direct Crypto QR & Address Transfer',
-    type: 'CRYPTO_DIRECT',
-    isEnabled: true, // Default ON
-    details: 'Supports USDT on TRC20, ERC20, Arbitrum, Solana with zero gateway fees.',
-  },
-  {
-    id: 'pay-web3-wallet',
-    name: 'Web3 Wallet Transaction Signing',
-    type: 'WEB3_WALLET',
-    isEnabled: true, // Default ON
-    details: 'Browser extension signing via MetaMask, Trust Wallet, Rabby.',
-  },
-  {
-    id: 'pay-stripe-fiat',
-    name: 'Stripe Credit / Debit Card Gateway',
-    type: 'STRIPE_FIAT',
-    isEnabled: false, // Default OFF as requested
-    isKmsSealed: false,
-    details: 'Credit card fiat processing. Requires KMS-sealed API key configuration.',
-  },
-];
+export function getStorageItem(key: string): string | null {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    return localStorage.getItem(key);
+  }
+  return memoryStorage.get(key) ?? null;
+}
+
+export function setStorageItem(key: string, value: string): void {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    localStorage.setItem(key, value);
+  }
+  memoryStorage.set(key, value);
+}
+
+export function clearMemoryStorage(): void {
+  memoryStorage.clear();
+}
+
+// Static Datasets purged in accordance with Zero Mock Data Policy
+export const INITIAL_VAULTS: readonly TreasuryVault[] = [];
+export const INITIAL_PAYMENTS: readonly PaymentGatewayConfig[] = [];
+export const INITIAL_VENUES: readonly any[] = [];
 
 export const adminApi = {
   getSystemStats: async (): Promise<SystemStats> => {
+    try {
+      const res = await adminFetch('/v1/admin/stats');
+      if (res.ok) {
+        const data = await res.json();
+        return {
+          activeBotsCount: Number.isFinite(Number(data.activeBotsCount ?? data.active_bots_count)) ? Number(data.activeBotsCount ?? data.active_bots_count) : 0,
+          totalVolume24hUsd: Number.isFinite(Number(data.totalVolume24hUsd ?? data.total_volume_24h_usd)) ? Number(data.totalVolume24hUsd ?? data.total_volume_24h_usd) : 0,
+          pendingSweepUsd: Number.isFinite(Number(data.pendingSweepUsd ?? data.pending_sweep_usd)) ? Number(data.pendingSweepUsd ?? data.pending_sweep_usd) : 0,
+          gatewayStatus: (data.gatewayStatus || data.gateway_status || 'HEALTHY') as SystemStats['gatewayStatus'],
+          kafkaLag: Number.isFinite(Number(data.kafkaLag ?? data.kafka_lag)) ? Number(data.kafkaLag ?? data.kafka_lag) : 0,
+          dbConnections: Number.isFinite(Number(data.dbConnections ?? data.db_connections)) ? Number(data.dbConnections ?? data.db_connections) : 0,
+          redisMemoryMb: Number.isFinite(Number(data.redisMemoryMb ?? data.redis_memory_mb)) ? Number(data.redisMemoryMb ?? data.redis_memory_mb) : 0,
+        };
+      }
+    } catch {
+      // Offline fallback: zero-based default state
+    }
+
     return {
-      activeBotsCount: 38,
-      totalVolume24hUsd: 1845920.0,
-      pendingSweepUsd: 6770.5,
+      activeBotsCount: 0,
+      totalVolume24hUsd: 0,
+      pendingSweepUsd: 0,
       gatewayStatus: 'HEALTHY',
       kafkaLag: 0,
-      dbConnections: 14,
-      redisMemoryMb: 42.8,
+      dbConnections: 0,
+      redisMemoryMb: 0,
     };
   },
 
@@ -528,17 +512,31 @@ export const adminApi = {
       const res = await adminFetch('/v1/treasury/admin/vaults');
       if (res.ok) {
         const data = await res.json();
-        if (data.vaults) return data.vaults;
+        const rawVaults = Array.isArray(data.vaults) ? data.vaults : (Array.isArray(data) ? data : []);
+        return rawVaults.map((v: any): TreasuryVault => ({
+          id: String(v.id || ''),
+          chain: String(v.chain || ''),
+          asset: String(v.asset || 'USDT'),
+          receivingAddress: String(v.receivingAddress || v.receiving_address || ''),
+          coldSweepAddress: String(v.coldSweepAddress || v.cold_sweep_address || ''),
+          minDepositUsd: Number.isFinite(Number(v.minDepositUsd ?? v.min_deposit_usd)) ? Number(v.minDepositUsd ?? v.min_deposit_usd) : 0,
+          sweepThresholdUsd: Number.isFinite(Number(v.sweepThresholdUsd ?? v.sweep_threshold_usd)) ? Number(v.sweepThresholdUsd ?? v.sweep_threshold_usd) : 0,
+          currentBalanceUsd: Number.isFinite(Number(v.currentBalanceUsd ?? v.current_balance_usd)) ? Number(v.currentBalanceUsd ?? v.current_balance_usd) : 0,
+          isActive: v.isActive !== undefined ? Boolean(v.isActive) : Boolean(v.is_active ?? true),
+          updatedAt: String(v.updatedAt || v.updated_at || new Date().toISOString()),
+        }));
       }
     } catch {
       // Fallback for standalone dev
     }
 
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('vf_admin_vaults');
-      if (saved) return JSON.parse(saved);
+    const saved = getStorageItem('vf_admin_vaults');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch { /* ignore corrupted */ }
     }
-    return INITIAL_VAULTS;
+    return [];
   },
 
   saveTreasuryVault: async (vault: TreasuryVault): Promise<TreasuryVault> => {
@@ -556,18 +554,12 @@ export const adminApi = {
       // Fallback for standalone dev
     }
 
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('vf_admin_vaults');
-      const list: TreasuryVault[] = saved ? JSON.parse(saved) : [...INITIAL_VAULTS];
-      const idx = list.findIndex((v) => v.id === vault.id);
-      if (idx >= 0) list[idx] = vault;
-      else list.push(vault);
-      localStorage.setItem('vf_admin_vaults', JSON.stringify(list));
-    } else {
-      const idx = INITIAL_VAULTS.findIndex((v) => v.id === vault.id);
-      if (idx >= 0) INITIAL_VAULTS[idx] = vault;
-      else INITIAL_VAULTS.push(vault);
-    }
+    const saved = getStorageItem('vf_admin_vaults');
+    const list: TreasuryVault[] = saved ? JSON.parse(saved) : [];
+    const idx = list.findIndex((v) => v.id === vault.id);
+    if (idx >= 0) list[idx] = vault;
+    else list.push(vault);
+    setStorageItem('vf_admin_vaults', JSON.stringify(list));
     return vault;
   },
 
@@ -576,43 +568,64 @@ export const adminApi = {
     amountUsdOverride?: number,
     force = false
   ): Promise<{ success: boolean; sweepId?: string; txHash?: string; message: string }> => {
+    const res = await adminFetch(`/v1/treasury/admin/vaults/${encodeURIComponent(vaultId)}/sweep`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        vault_id: vaultId,
+        amount_usd_override: amountUsdOverride,
+        force,
+      }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return {
+        success: Boolean(data.success ?? true),
+        sweepId: data.sweepId || data.sweep_id,
+        txHash: data.txHash || data.tx_hash,
+        message: data.message || `Cold storage sweep initiated successfully for vault ${vaultId}`,
+      };
+    }
+    let errText = '';
     try {
-      const res = await adminFetch(`/v1/treasury/admin/vaults/${encodeURIComponent(vaultId)}/sweep`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          vault_id: vaultId,
-          amount_usd_override: amountUsdOverride,
-          force,
-        }),
-      });
-      if (res.ok) {
-        return await res.json();
+      if (typeof res.text === 'function') {
+        errText = await res.text();
+      } else if (typeof res.json === 'function') {
+        const j = await res.json();
+        errText = (j && j.error) ? String(j.error) : JSON.stringify(j);
       }
     } catch {
-      // Fallback for standalone dev
+      // ignore
     }
-
-    return {
-      success: true,
-      sweepId: `swp-${Date.now()}`,
-      txHash: `0xmocktxhash${Date.now()}8899aabbcc`,
-      message: `Cold storage sweep initiated successfully for vault ${vaultId}`,
-    };
+    throw new Error(`Sweep initiation failed (HTTP ${res.status}): ${errText || res.statusText || 'Treasury service unreachable'}`);
   },
 
   getPaymentGateways: async (): Promise<PaymentGatewayConfig[]> => {
+    try {
+      const res = await adminFetch('/v1/billing/gateways');
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.gateways)) return data.gateways;
+      }
+    } catch {
+      // Fallback
+    }
+
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('vf_admin_payments');
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch { /* ignore corrupted */ }
+      }
     }
-    return INITIAL_PAYMENTS;
+    return [];
   },
 
   savePaymentGateway: async (config: PaymentGatewayConfig): Promise<void> => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('vf_admin_payments');
-      const list: PaymentGatewayConfig[] = saved ? JSON.parse(saved) : [...INITIAL_PAYMENTS];
+      const list: PaymentGatewayConfig[] = saved ? JSON.parse(saved) : [];
       const idx = list.findIndex((p) => p.id === config.id);
       if (idx >= 0) list[idx] = config;
       else list.push(config);
@@ -621,88 +634,68 @@ export const adminApi = {
   },
 
   getUsers: async (): Promise<AdminUser[]> => {
-    return [
-      {
-        id: 'usr_admin_master',
-        email: 'security-admin@venom.finance',
-        role: 'super_admin',
-        status: 'ACTIVE',
-        activeBotsCount: 3,
-        totalVolumeUsd: 84000,
-        createdAt: '2026-08-01T10:00:00Z',
-      },
-      {
-        id: 'usr_alpha_1',
-        email: 'trader.alpha@hedge.fund',
-        role: 'trader',
-        status: 'ACTIVE',
-        activeBotsCount: 12,
-        totalVolumeUsd: 492000,
-        createdAt: '2026-08-15T14:30:00Z',
-      },
-      {
-        id: 'usr_suspicious_bot',
-        email: 'scanner99@anonymous.io',
-        role: 'trader',
-        status: 'SUSPENDED',
-        activeBotsCount: 0,
-        totalVolumeUsd: 1200,
-        createdAt: '2026-09-01T08:12:00Z',
-      },
-    ];
+    try {
+      const res = await adminFetch('/v1/admin/users');
+      if (res.ok) {
+        const data = await res.json();
+        const rawUsers = Array.isArray(data.users) ? data.users : (Array.isArray(data) ? data : []);
+        return rawUsers.map((u: any): AdminUser => ({
+          id: String(u.id || ''),
+          email: String(u.email || ''),
+          role: (u.role || 'trader') as AdminUser['role'],
+          status: (u.status || 'ACTIVE') as AdminUser['status'],
+          activeBotsCount: Number.isFinite(Number(u.activeBotsCount ?? u.active_bots_count)) ? Number(u.activeBotsCount ?? u.active_bots_count) : 0,
+          totalVolumeUsd: Number.isFinite(Number(u.totalVolumeUsd ?? u.total_volume_usd)) ? Number(u.totalVolumeUsd ?? u.total_volume_usd) : 0,
+          createdAt: String(u.createdAt || u.created_at || new Date().toISOString()),
+        }));
+      }
+    } catch {
+      // Fallback
+    }
+
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('vf_admin_users');
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch { /* ignore corrupted */ }
+      }
+    }
+    return [];
   },
 
   getFleetBots: async (): Promise<FleetBot[]> => {
-    return [
-      {
-        id: 'bot_fl_1',
-        userId: 'usr_alpha_1',
-        label: 'BTC Alpha Grid Core',
-        strategy: 'SPOT_GRID',
-        symbol: 'BTCUSDT',
-        exchange: 'BINANCE',
-        status: 'RUNNING',
-        activeOrders: 32,
-        unrealizedPnlUsd: 142.5,
-        startedAt: '2026-08-28T12:00:00Z',
-      },
-      {
-        id: 'bot_fl_2',
-        userId: 'usr_alpha_1',
-        label: 'SOL 10x Momentum',
-        strategy: 'FUTURES_GRID',
-        symbol: 'SOLUSDT',
-        exchange: 'BYBIT',
-        status: 'RUNNING',
-        activeOrders: 24,
-        unrealizedPnlUsd: 380.0,
-        startedAt: '2026-08-30T09:15:00Z',
-      },
-      {
-        id: 'bot_fl_3',
-        userId: 'usr_trader_02',
-        label: 'ETH Swap Arbitrage',
-        strategy: 'FUTURES_GRID',
-        symbol: 'ETH-USDT',
-        exchange: 'BINGX',
-        status: 'RUNNING',
-        activeOrders: 18,
-        unrealizedPnlUsd: 95.2,
-        startedAt: '2026-09-02T14:30:00Z',
-      },
-      {
-        id: 'bot_fl_4',
-        userId: 'usr_web3_88',
-        label: 'ETH/USD Arbitrum Liquidity Harvest',
-        strategy: 'INFINITY_GRID',
-        symbol: 'ETH/USD',
-        exchange: 'GMX_V2',
-        status: 'RUNNING',
-        activeOrders: 12,
-        unrealizedPnlUsd: 215.8,
-        startedAt: '2026-09-05T10:00:00Z',
-      },
-    ];
+    try {
+      const res = await adminFetch('/v1/admin/bots');
+      if (res.ok) {
+        const data = await res.json();
+        const rawBots = Array.isArray(data.bots) ? data.bots : (Array.isArray(data) ? data : []);
+        return rawBots.map((b: any): FleetBot => ({
+          id: String(b.id || ''),
+          userId: String(b.userId || b.user_id || ''),
+          label: String(b.label || b.name || ''),
+          strategy: String(b.strategy || ''),
+          symbol: String(b.symbol || ''),
+          exchange: b.exchange ? String(b.exchange) : undefined,
+          status: (b.status || 'STOPPED') as FleetBot['status'],
+          activeOrders: Number.isFinite(Number(b.activeOrders ?? b.active_orders)) ? Number(b.activeOrders ?? b.active_orders) : 0,
+          unrealizedPnlUsd: Number.isFinite(Number(b.unrealizedPnlUsd ?? b.unrealized_pnl_usd)) ? Number(b.unrealizedPnlUsd ?? b.unrealized_pnl_usd) : 0,
+          startedAt: String(b.startedAt || b.started_at || new Date().toISOString()),
+        }));
+      }
+    } catch {
+      // Fallback
+    }
+
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('vf_admin_fleet_bots');
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch { /* ignore corrupted */ }
+      }
+    }
+    return [];
   },
 
   listUniversalGateways: async (): Promise<UniversalGateway[]> => {
@@ -888,24 +881,66 @@ export const adminApi = {
 
   // Divergent Orders Governance Console
   getDivergentOrders: async (): Promise<DivergentOrder[]> => {
+    try {
+      const res = await adminFetch('/v1/trading/admin/divergent-orders');
+      if (res.ok) {
+        const data = await res.json();
+        const rawList = Array.isArray(data.orders) ? data.orders : (Array.isArray(data) ? data : []);
+        return rawList.map((o: any): DivergentOrder => ({
+          id: String(o.id || ''),
+          clientOrderId: String(o.clientOrderId || o.client_order_id || ''),
+          userId: String(o.userId || o.user_id || ''),
+          botId: o.botId || o.bot_id ? String(o.botId || o.bot_id) : undefined,
+          symbol: String(o.symbol || ''),
+          exchange: o.exchange ? String(o.exchange) : undefined,
+          side: (o.side || 'BUY') as DivergentOrder['side'],
+          orderType: (o.orderType || o.order_type || 'LIMIT') as DivergentOrder['orderType'],
+          price: String(o.price || '0'),
+          quantity: String(o.quantity || '0'),
+          localStatus: (o.localStatus || o.local_status || 'IN_FLIGHT_UNKNOWN') as DivergentOrder['localStatus'],
+          exchangeStatus: (o.exchangeStatus || o.exchange_status || 'NEW') as DivergentOrder['exchangeStatus'],
+          discrepancyType: (o.discrepancyType || o.discrepancy_type || 'STATE_MISMATCH') as DivergentOrder['discrepancyType'],
+          lastCheckedAt: String(o.lastCheckedAt || o.last_checked_at || new Date().toISOString()),
+          createdAt: String(o.createdAt || o.created_at || new Date().toISOString()),
+          divergenceAgeSeconds: Number.isFinite(Number(o.divergenceAgeSeconds ?? o.divergence_age_seconds)) ? Number(o.divergenceAgeSeconds ?? o.divergence_age_seconds) : 0,
+        }));
+      }
+    } catch {
+      // Fallback
+    }
+
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('vf_admin_divergent_orders');
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch { /* ignore corrupted */ }
+      }
     }
-    return INITIAL_DIVERGENT_ORDERS;
+    return [];
   },
 
   syncDivergentOrder: async (orderId: string): Promise<{ success: boolean; message: string; updatedStatus: string }> => {
-    let list: DivergentOrder[] = INITIAL_DIVERGENT_ORDERS;
+    try {
+      const res = await adminFetch(`/v1/trading/admin/divergent-orders/${encodeURIComponent(orderId)}/sync`, {
+        method: 'POST',
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch {
+      // Fallback
+    }
+
+    let list: DivergentOrder[] = [];
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('vf_admin_divergent_orders');
-      list = saved ? JSON.parse(saved) : [...INITIAL_DIVERGENT_ORDERS];
+      list = saved ? JSON.parse(saved) : [];
     }
     const idx = list.findIndex((o) => o.id === orderId);
     if (idx === -1) {
       return { success: false, message: 'Order not found', updatedStatus: 'UNKNOWN' };
     }
-    // Update status to match exchange execution
     const target = list[idx];
     target.localStatus = target.exchangeStatus === 'FILLED' ? 'NEW' : 'REJECTED';
     target.discrepancyType = 'STATE_MISMATCH';
@@ -915,40 +950,54 @@ export const adminApi = {
     }
     return {
       success: true,
-      message: `Order ${target.clientOrderId} synchronized with Binance execution report: ${target.exchangeStatus}`,
+      message: `Order ${target.clientOrderId} synchronized with exchange execution report: ${target.exchangeStatus}`,
       updatedStatus: target.exchangeStatus,
     };
   },
 
   forceCancelDivergentOrder: async (orderId: string): Promise<{ success: boolean; message: string }> => {
-    let list: DivergentOrder[] = INITIAL_DIVERGENT_ORDERS;
+    try {
+      const res = await adminFetch(`/v1/trading/admin/divergent-orders/${encodeURIComponent(orderId)}/cancel`, {
+        method: 'POST',
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch {
+      // Fallback
+    }
+
+    let list: DivergentOrder[] = [];
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('vf_admin_divergent_orders');
-      list = saved ? JSON.parse(saved) : [...INITIAL_DIVERGENT_ORDERS];
-    }
-    const filtered = list.filter((o) => o.id !== orderId);
-    if (typeof window !== 'undefined') {
+      list = saved ? JSON.parse(saved) : [];
+      const filtered = list.filter((o) => o.id !== orderId);
       localStorage.setItem('vf_admin_divergent_orders', JSON.stringify(filtered));
-    } else {
-      INITIAL_DIVERGENT_ORDERS = filtered;
     }
     return {
       success: true,
-      message: `Emergency cancellation sent to Binance. Resting order cleared.`,
+      message: `Emergency cancellation sent to exchange. Resting order cleared.`,
     };
   },
 
   declareAbandonedOrder: async (orderId: string): Promise<{ success: boolean; message: string }> => {
-    let list: DivergentOrder[] = INITIAL_DIVERGENT_ORDERS;
+    try {
+      const res = await adminFetch(`/v1/trading/admin/divergent-orders/${encodeURIComponent(orderId)}/abandon`, {
+        method: 'POST',
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch {
+      // Fallback
+    }
+
+    let list: DivergentOrder[] = [];
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('vf_admin_divergent_orders');
-      list = saved ? JSON.parse(saved) : [...INITIAL_DIVERGENT_ORDERS];
-    }
-    const filtered = list.filter((o) => o.id !== orderId);
-    if (typeof window !== 'undefined') {
+      list = saved ? JSON.parse(saved) : [];
+      const filtered = list.filter((o) => o.id !== orderId);
       localStorage.setItem('vf_admin_divergent_orders', JSON.stringify(filtered));
-    } else {
-      INITIAL_DIVERGENT_ORDERS = filtered;
     }
     return {
       success: true,
@@ -963,22 +1012,36 @@ export const adminApi = {
       const res = await adminFetch(url);
       if (res.ok) {
         const data = await res.json();
-        if (data.claims) return data.claims;
+        const rawClaims = Array.isArray(data.claims) ? data.claims : (Array.isArray(data) ? data : []);
+        return rawClaims.map((c: any): CompensationClaim => ({
+          id: String(c.id || ''),
+          incidentId: String(c.incidentId || c.incident_id || ''),
+          userId: String(c.userId || c.user_id || ''),
+          amountCents: Number.isFinite(Number(c.amountCents ?? c.amount_cents)) ? Number(c.amountCents ?? c.amount_cents) : 0,
+          reason: String(c.reason || ''),
+          evidencePayload: String(c.evidencePayload || c.evidence_payload || '{}'),
+          status: (c.status || 'PENDING_APPROVAL') as CompensationClaim['status'],
+          createdByAdminId: String(c.createdByAdminId || c.created_by_admin_id || ''),
+          approvedByAdminId: c.approvedByAdminId || c.approved_by_admin_id ? String(c.approvedByAdminId || c.approved_by_admin_id) : undefined,
+          rejectionReason: c.rejectionReason || c.rejection_reason ? String(c.rejectionReason || c.rejection_reason) : undefined,
+          createdAt: String(c.createdAt || c.created_at || new Date().toISOString()),
+          updatedAt: String(c.updatedAt || c.updated_at || new Date().toISOString()),
+          approvedAt: c.approvedAt || c.approved_at ? String(c.approvedAt || c.approved_at) : undefined,
+        }));
       }
     } catch {
       // Fallback to local storage for standalone back-office
     }
 
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('vf_admin_compensations');
-      if (saved) {
+    const saved = getStorageItem('vf_admin_compensations');
+    if (saved) {
+      try {
         const parsed: CompensationClaim[] = JSON.parse(saved);
         if (status) return parsed.filter((c) => c.status === status);
         return parsed;
-      }
+      } catch { /* ignore corrupted */ }
     }
-    if (status) return INITIAL_COMPENSATIONS.filter((c) => c.status === status);
-    return INITIAL_COMPENSATIONS;
+    return [];
   },
 
   createCompensationClaim: async (
@@ -999,7 +1062,7 @@ export const adminApi = {
       });
       if (res.ok) {
         const data = await res.json();
-        return data.claim;
+        if (data.claim) return data.claim;
       }
     } catch {
       // Fallback
@@ -1011,21 +1074,17 @@ export const adminApi = {
       userId: payload.userId,
       amountCents: payload.amountCents,
       reason: payload.reason,
-      evidencePayload: payload.evidencePayload,
+      evidencePayload: payload.evidencePayload || '{}',
       status: 'PENDING_APPROVAL',
       createdByAdminId: adminId,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('vf_admin_compensations');
-      const list: CompensationClaim[] = saved ? JSON.parse(saved) : [...INITIAL_COMPENSATIONS];
-      list.unshift(newClaim);
-      localStorage.setItem('vf_admin_compensations', JSON.stringify(list));
-    } else {
-      INITIAL_COMPENSATIONS.unshift(newClaim);
-    }
+    const saved = getStorageItem('vf_admin_compensations');
+    const list: CompensationClaim[] = saved ? JSON.parse(saved) : [];
+    list.unshift(newClaim);
+    setStorageItem('vf_admin_compensations', JSON.stringify(list));
     return newClaim;
   },
 
@@ -1037,7 +1096,7 @@ export const adminApi = {
       const res = await adminFetch(`/v1/billing/admin/compensations/${encodeURIComponent(claimId)}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ checker_admin_id: checkerAdminId }),
       });
       if (res.ok) {
         return await res.json();
@@ -1046,11 +1105,8 @@ export const adminApi = {
       // Fallback
     }
 
-    let list: CompensationClaim[] = INITIAL_COMPENSATIONS;
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('vf_admin_compensations');
-      list = saved ? JSON.parse(saved) : [...INITIAL_COMPENSATIONS];
-    }
+    const saved = getStorageItem('vf_admin_compensations');
+    const list: CompensationClaim[] = saved ? JSON.parse(saved) : [];
 
     const claim = list.find((c) => c.id === claimId);
     if (!claim) {
@@ -1068,9 +1124,7 @@ export const adminApi = {
     claim.approvedAt = new Date().toISOString();
     claim.updatedAt = new Date().toISOString();
 
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('vf_admin_compensations', JSON.stringify(list));
-    }
+    setStorageItem('vf_admin_compensations', JSON.stringify(list));
 
     return {
       claim,
@@ -1088,7 +1142,7 @@ export const adminApi = {
       const res = await adminFetch(`/v1/billing/admin/compensations/${encodeURIComponent(claimId)}/reject`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason }),
+        body: JSON.stringify({ checker_admin_id: checkerAdminId, reason }),
       });
       if (res.ok) {
         return await res.json();
@@ -1097,11 +1151,8 @@ export const adminApi = {
       // Fallback
     }
 
-    let list: CompensationClaim[] = INITIAL_COMPENSATIONS;
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('vf_admin_compensations');
-      list = saved ? JSON.parse(saved) : [...INITIAL_COMPENSATIONS];
-    }
+    const saved = getStorageItem('vf_admin_compensations');
+    const list: CompensationClaim[] = saved ? JSON.parse(saved) : [];
 
     const claim = list.find((c) => c.id === claimId);
     if (!claim) {
@@ -1119,9 +1170,7 @@ export const adminApi = {
     claim.rejectionReason = reason;
     claim.updatedAt = new Date().toISOString();
 
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('vf_admin_compensations', JSON.stringify(list));
-    }
+    setStorageItem('vf_admin_compensations', JSON.stringify(list));
 
     return {
       claim,
@@ -1411,130 +1460,158 @@ export const adminApi = {
 
     return INITIAL_PUBLIC_EXCHANGE_CONFIGS;
   },
+
+  // Maker-Checker Venue Decommissioning Governance (4-Eyes Dual Approval)
+  proposeVenueDecommission: async (
+    exchange: ExchangeKey,
+    makerAdminId: string,
+    reason: string
+  ): Promise<BrokerConfigDTO> => {
+    const exchangeSlug = exchange.replace(/^EXCHANGE_/, '').toLowerCase();
+    try {
+      const res = await adminFetch(`/v1/admin/broker-configs/${encodeURIComponent(exchangeSlug)}/decommission/propose`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          exchange: exchangeSlug,
+          maker_admin_id: makerAdminId,
+          reason,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.config) return parseBrokerConfigWire(data.config, exchange);
+      }
+    } catch {
+      // Fallback
+    }
+
+    const configs = await adminApi.getBrokerConfigs();
+    const target = configs.find((c) => c.exchange === exchange);
+    if (!target) {
+      throw new Error(`Venue configuration for ${exchange} not found`);
+    }
+
+    target.lifecycleStatus = VENUE_LIFECYCLE_STATUS.SUNSETTING;
+    target.decommissionProposal = {
+      proposedBy: makerAdminId,
+      proposedAt: new Date().toISOString(),
+      reason,
+      status: 'PENDING_APPROVAL',
+    };
+    target.updatedAt = new Date().toISOString();
+    target.updatedBy = makerAdminId;
+    target.notes = `Decommission proposal initiated by Maker (${makerAdminId}): ${reason}. Pending independent Checker review.`;
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('vf_admin_broker_configs', JSON.stringify(configs));
+    }
+    return target;
+  },
+
+  approveVenueDecommission: async (
+    exchange: ExchangeKey,
+    checkerAdminId: string
+  ): Promise<BrokerConfigDTO> => {
+    const exchangeSlug = exchange.replace(/^EXCHANGE_/, '').toLowerCase();
+    try {
+      const res = await adminFetch(`/v1/admin/broker-configs/${encodeURIComponent(exchangeSlug)}/decommission/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          exchange: exchangeSlug,
+          checker_admin_id: checkerAdminId,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.config) return parseBrokerConfigWire(data.config, exchange);
+      }
+    } catch {
+      // Fallback
+    }
+
+    const configs = await adminApi.getBrokerConfigs();
+    const target = configs.find((c) => c.exchange === exchange);
+    if (!target) {
+      throw new Error(`Venue configuration for ${exchange} not found`);
+    }
+    if (!target.decommissionProposal || target.decommissionProposal.status !== 'PENDING_APPROVAL') {
+      throw new Error('No pending decommissioning proposal found for this venue');
+    }
+    if (target.decommissionProposal.proposedBy === checkerAdminId) {
+      throw new Error('Maker-Checker violation: Maker cannot approve their own venue decommissioning proposal. Independent Checker required.');
+    }
+
+    target.lifecycleStatus = VENUE_LIFECYCLE_STATUS.TERMINATED;
+    target.status = BROKER_CONFIG_STATUS.INACTIVE;
+    target.decommissionProposal.status = 'APPROVED';
+    target.decommissionProposal.approvedBy = checkerAdminId;
+    target.decommissionProposal.approvedAt = new Date().toISOString();
+    target.updatedAt = new Date().toISOString();
+    target.updatedBy = checkerAdminId;
+    target.sunsetNotice = 'Venue decommissioned by dual-approval governance. Automated graceful soft-stop enforced.';
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('vf_admin_broker_configs', JSON.stringify(configs));
+    }
+    return target;
+  },
+
+  rejectVenueDecommission: async (
+    exchange: ExchangeKey,
+    checkerAdminId: string,
+    rejectionReason: string
+  ): Promise<BrokerConfigDTO> => {
+    const exchangeSlug = exchange.replace(/^EXCHANGE_/, '').toLowerCase();
+    try {
+      const res = await adminFetch(`/v1/admin/broker-configs/${encodeURIComponent(exchangeSlug)}/decommission/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          exchange: exchangeSlug,
+          checker_admin_id: checkerAdminId,
+          reason: rejectionReason,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.config) return parseBrokerConfigWire(data.config, exchange);
+      }
+    } catch {
+      // Fallback
+    }
+
+    const configs = await adminApi.getBrokerConfigs();
+    const target = configs.find((c) => c.exchange === exchange);
+    if (!target) {
+      throw new Error(`Venue configuration for ${exchange} not found`);
+    }
+    if (!target.decommissionProposal || target.decommissionProposal.status !== 'PENDING_APPROVAL') {
+      throw new Error('No pending decommissioning proposal found for this venue');
+    }
+    if (target.decommissionProposal.proposedBy === checkerAdminId) {
+      throw new Error('Maker-Checker violation: Maker cannot reject their own venue decommissioning proposal. Independent Checker required.');
+    }
+
+    target.lifecycleStatus = VENUE_LIFECYCLE_STATUS.ACTIVE;
+    target.status = BROKER_CONFIG_STATUS.ACTIVE;
+    target.decommissionProposal.status = 'REJECTED';
+    target.decommissionProposal.approvedBy = checkerAdminId;
+    target.decommissionProposal.rejectionReason = rejectionReason;
+    target.updatedAt = new Date().toISOString();
+    target.updatedBy = checkerAdminId;
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('vf_admin_broker_configs', JSON.stringify(configs));
+    }
+    return target;
+  },
 };
 
-
-export let INITIAL_DIVERGENT_ORDERS: DivergentOrder[] = [
-  {
-    id: 'ord-div-001',
-    clientOrderId: 'VF-B-GRID-usr123-8899aabbcc',
-    userId: 'usr_premium_01',
-    botId: 'bot-grid-btc-01',
-    symbol: 'BTCUSDT',
-    exchange: 'BINANCE',
-    side: 'BUY',
-    orderType: 'LIMIT_MAKER',
-    price: '89450.00',
-    quantity: '0.0500',
-    localStatus: 'IN_FLIGHT_UNKNOWN',
-    exchangeStatus: 'FILLED',
-    discrepancyType: 'GHOST_FILL',
-    lastCheckedAt: new Date(Date.now() - 120_000).toISOString(),
-    createdAt: new Date(Date.now() - 300_000).toISOString(),
-    divergenceAgeSeconds: 300,
-  },
-  {
-    id: 'ord-div-002',
-    clientOrderId: 'VF-B-DCA-usr456-1122334455',
-    userId: 'usr_trader_09',
-    botId: 'bot-dca-sol-02',
-    symbol: 'SOLUSDT',
-    exchange: 'BYBIT',
-    side: 'SELL',
-    orderType: 'LIMIT_MAKER',
-    price: '198.50',
-    quantity: '15.00',
-    localStatus: 'IN_FLIGHT_UNKNOWN',
-    exchangeStatus: 'NOT_FOUND',
-    discrepancyType: 'IN_FLIGHT_TIMEOUT',
-    lastCheckedAt: new Date(Date.now() - 60_000).toISOString(),
-    createdAt: new Date(Date.now() - 180_000).toISOString(),
-    divergenceAgeSeconds: 180,
-  },
-  {
-    id: 'ord-div-003',
-    clientOrderId: 'VF-B-TERM-usr789-9988776655',
-    userId: 'usr_vip_42',
-    symbol: 'ETHUSDT',
-    exchange: 'BINGX',
-    side: 'BUY',
-    orderType: 'LIMIT',
-    price: '3150.00',
-    quantity: '2.5000',
-    localStatus: 'IN_FLIGHT_UNKNOWN',
-    exchangeStatus: 'CANCELED',
-    discrepancyType: 'STATE_MISMATCH',
-    lastCheckedAt: new Date(Date.now() - 45_000).toISOString(),
-    createdAt: new Date(Date.now() - 240_000).toISOString(),
-    divergenceAgeSeconds: 240,
-  },
-  {
-    id: 'ord-div-004',
-    clientOrderId: 'VF-B-GMX-usr888-aabb112233',
-    userId: 'usr_web3_88',
-    botId: 'bot-fl_4',
-    symbol: 'ETH/USD',
-    exchange: 'GMX_V2',
-    side: 'BUY',
-    orderType: 'LIMIT',
-    price: '3245.00',
-    quantity: '1.2000',
-    localStatus: 'IN_FLIGHT_UNKNOWN',
-    exchangeStatus: 'NEW',
-    discrepancyType: 'IN_FLIGHT_TIMEOUT',
-    lastCheckedAt: new Date(Date.now() - 30_000).toISOString(),
-    createdAt: new Date(Date.now() - 150_000).toISOString(),
-    divergenceAgeSeconds: 150,
-  },
-];
-
-export let INITIAL_COMPENSATIONS: CompensationClaim[] = [
-  {
-    id: 'claim-comp-101',
-    incidentId: 'INC-2026-09-001',
-    userId: 'usr_premium_01',
-    amountCents: 15400, // $154.00
-    reason: 'Unhedged BUY limit order slippage during Binance websocket reconnect gap',
-    evidencePayload: JSON.stringify(
-      {
-        symbol: 'BTCUSDT',
-        expectedPrice: 89100.0,
-        executedPrice: 89408.0,
-        volume: 0.5,
-        incident_ts: '2026-09-08T14:32:00Z',
-      },
-      null,
-      2
-    ),
-    status: 'PENDING_APPROVAL',
-    createdByAdminId: 'ops-maker-support',
-    createdAt: new Date(Date.now() - 3600_000).toISOString(),
-    updatedAt: new Date(Date.now() - 3600_000).toISOString(),
-  },
-  {
-    id: 'claim-comp-102',
-    incidentId: 'INC-2026-09-002',
-    userId: 'usr_trader_09',
-    amountCents: 4500, // $45.00
-    reason: 'Stale order execution due to network latency exceeding 1500ms budget',
-    evidencePayload: JSON.stringify(
-      {
-        symbol: 'SOLUSDT',
-        drift_percent: 0.65,
-        threshold_percent: 0.5,
-        incident_ts: '2026-09-08T18:10:00Z',
-      },
-      null,
-      2
-    ),
-    status: 'APPROVED',
-    createdByAdminId: 'ops-maker-support',
-    approvedByAdminId: 'finance-lead-checker',
-    createdAt: new Date(Date.now() - 86400_000).toISOString(),
-    updatedAt: new Date(Date.now() - 82000_000).toISOString(),
-    approvedAt: new Date(Date.now() - 82000_000).toISOString(),
-  },
-];
+// Purged static mock datasets in compliance with Zero Mock Data standard
+export const INITIAL_DIVERGENT_ORDERS: readonly DivergentOrder[] = [];
+export const INITIAL_COMPENSATIONS: readonly CompensationClaim[] = [];
 
 export let INITIAL_BROKER_CONFIGS: BrokerConfigDTO[] = [
   {

@@ -25,6 +25,9 @@
     "paths": {
       "@/*": [
         "./src/*"
+      ],
+      "@creatortsv/pkg-ui": [
+        "./src/components/pkg-ui/index.ts"
       ]
     }
   },

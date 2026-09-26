@@ -33,6 +33,16 @@ export const BROKER_CONFIG_STATUS = {
 
 export type BrokerConfigStatusContract = (typeof BROKER_CONFIG_STATUS)[keyof typeof BROKER_CONFIG_STATUS];
 
+export interface DecommissionProposal {
+  proposedBy: string;
+  proposedAt: string;
+  reason: string;
+  status: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';
+  approvedBy?: string;
+  approvedAt?: string;
+  rejectionReason?: string;
+}
+
 /**
  * 100% strict wire DTO matching JSON serialized by gRPC-Gateway from venom.broker_config.v1.BrokerConfig
  */
@@ -59,6 +69,7 @@ export interface BrokerConfigWireDTO {
   lifecycleStatus: VenueLifecycleStatusContract;
   sunsetDeadline?: string | null;
   sunsetNotice?: string | null;
+  decommissionProposal?: DecommissionProposal | null;
 }
 
 /**

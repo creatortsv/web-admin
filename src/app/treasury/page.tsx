@@ -2,7 +2,8 @@
 
 import * as React from 'react';
 import { adminApi, TreasuryVault } from '@/services/adminApi';
-import { Wallet, Save, ArrowDownToLine, Check, ShieldCheck, AlertTriangle } from 'lucide-react';
+import { Wallet, Save, ArrowDownToLine, Check, ShieldCheck, AlertTriangle, Landmark } from 'lucide-react';
+import { InstitutionalEmptyState } from '@creatortsv/pkg-ui';
 
 export default function TreasuryPage() {
   const [vaults, setVaults] = React.useState<TreasuryVault[]>([]);
@@ -51,7 +52,15 @@ export default function TreasuryPage() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         {/* Vaults List */}
         <div className="lg:col-span-7 space-y-4">
-          {vaults.map((vault) => (
+          {vaults.length === 0 ? (
+            <InstitutionalEmptyState
+              icon={(props: { className?: string }) => <Landmark className={props.className} />}
+              badge="COLD STORAGE VAULTS"
+              title="No Treasury Vaults Configured"
+              description="Zero deposit receiving addresses or cold multi-sig sweep vaults are registered in the cluster."
+            />
+          ) : (
+            vaults.map((vault) => (
             <div
               key={vault.id}
               onClick={() => setEditingVault({ ...vault })}
@@ -101,7 +110,8 @@ export default function TreasuryPage() {
                 </div>
               </div>
             </div>
-          ))}
+            ))
+          )}
         </div>
 
         {/* Vault Edit Panel */}

@@ -35,6 +35,7 @@ import {
   Ban,
   AlertOctagon,
 } from 'lucide-react';
+import { useAdminAuthStore } from '@/stores/useAdminAuthStore';
 
 interface ExchangeMeta {
   key: ExchangeKey;
@@ -271,6 +272,7 @@ Venom Finance Management`,
 const EGRESS_IPS = ['34.118.24.10', '34.118.24.11'];
 
 export default function BrokerRebatesPage() {
+  const { adminEmail } = useAdminAuthStore();
   const [configs, setConfigs] = React.useState<BrokerConfigDTO[]>([]);
   const [selectedExchange, setSelectedExchange] = React.useState<ExchangeKey>('EXCHANGE_BINGX');
   const [activeTab, setActiveTab] = React.useState<'CONFIG' | 'TEST' | 'ONBOARDING'>('CONFIG');
@@ -285,6 +287,8 @@ export default function BrokerRebatesPage() {
   const [sunsetDeadline, setSunsetDeadline] = React.useState<string>('');
   const [sunsetNotice, setSunsetNotice] = React.useState<string>('');
   const [showTerminatedModal, setShowTerminatedModal] = React.useState<boolean>(false);
+  const [decommissionReason, setDecommissionReason] = React.useState<string>('Venue operational transition or liquidity migration');
+  const [actionMessage, setActionMessage] = React.useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [rebateRatePercent, setRebateRatePercent] = React.useState<number>(45);
   const [clientPrefix, setClientPrefix] = React.useState<string>('x-VF-');
   const [notes, setNotes] = React.useState('');
@@ -573,43 +577,14 @@ export default function BrokerRebatesPage() {
     }
   };
 
-  const handleConfirmDecommission = async () => {
+  const handleProposeDecommission = async () => {
     setShowTerminatedModal(false);
-    setLifecycleStatus(VENUE_LIFECYCLE_STATUS.TERMINATED);
-    setStatus(BROKER_CONFIG_STATUS.INACTIVE);
-
-    const fallbackPrefix = meta.key === 'EXCHANGE_BINGX'
-      ? 'BX-AI-SKILL'
-      : meta.key === 'EXCHANGE_HYPERLIQUID'
-      ? (activeConfig?.payoutAddress || activeConfig?.extraParams?.builder || '0x1122334455667788990011223344556677889900')
-      : 'x-VF-';
-    const rawIdent = activeConfig?.maskedIdentifier && !activeConfig.maskedIdentifier.includes('*')
-      ? activeConfig.maskedIdentifier
-      : fallbackPrefix;
-
-    const extraParams = { ...(activeConfig?.extraParams || {}) };
-    if (selectedExchange === 'EXCHANGE_HYPERLIQUID') {
-      extraParams['builder'] = rawIdent;
-      if (!extraParams['fee']) extraParams['fee'] = '10';
-    }
-
     try {
-      const updated = await adminApi.updateBrokerConfig({
-        id: activeConfig?.id,
-        exchange: selectedExchange,
-        attributionType: activeConfig?.attributionType || meta.defaultAttribution,
-        rawIdentifier: rawIdent,
-        payoutAddress: selectedExchange === 'EXCHANGE_HYPERLIQUID' ? rawIdent : (activeConfig?.payoutAddress || ''),
-        status: BROKER_CONFIG_STATUS.INACTIVE,
-        lifecycleStatus: VENUE_LIFECYCLE_STATUS.TERMINATED,
-        sunsetDeadline: null,
-        sunsetNotice: 'Venue decommissioned by operator. Automated graceful soft-stop enforced.',
-        rebateRateBps: activeConfig?.rebateRateBps || 3000,
-        expectedVersion: activeConfig?.version || 0,
-        notes: activeConfig?.notes || 'Venue decommissioned by operator. Automated graceful soft-stop enforced.',
-        payloadParams: extraParams,
-        extraParams,
-      });
+      const updated = await adminApi.proposeVenueDecommission(
+        selectedExchange,
+        adminEmail || 'ops-maker-support',
+        decommissionReason || 'Venue decommission proposed by operator. Pending Checker review.'
+      );
       setConfigs((prev) => {
         const idx = prev.findIndex((c) => c.exchange === selectedExchange);
         if (idx >= 0) {
@@ -619,8 +594,95 @@ export default function BrokerRebatesPage() {
         }
         return [...prev, updated];
       });
+      setLifecycleStatus(VENUE_LIFECYCLE_STATUS.SUNSETTING);
+      setActionMessage({
+        text: `Maker-Checker 4-Eyes dual control: Decommission proposal registered for ${meta.displayName}. An independent Checker must verify and approve before final termination.`,
+        type: 'success',
+      });
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Failed to decommission venue');
+      setActionMessage({
+        text: err instanceof Error ? err.message : 'Failed to propose venue decommissioning',
+        type: 'error',
+      });
+    }
+  };
+
+  const handleApproveDecommission = async () => {
+    if (activeConfig?.decommissionProposal?.proposedBy === adminEmail) {
+      setActionMessage({
+        text: `Maker-Checker Violation: You (${adminEmail}) proposed this decommissioning. Under Segregation of Duties, an independent Checker must approve it.`,
+        type: 'error',
+      });
+      return;
+    }
+    if (!confirm(`Approve permanent decommissioning and automated soft-stop for ${meta.displayName}?`)) {
+      return;
+    }
+    try {
+      const updated = await adminApi.approveVenueDecommission(
+        selectedExchange,
+        adminEmail || 'compliance-checker-lead'
+      );
+      setConfigs((prev) => {
+        const idx = prev.findIndex((c) => c.exchange === selectedExchange);
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = updated;
+          return next;
+        }
+        return [...prev, updated];
+      });
+      setLifecycleStatus(VENUE_LIFECYCLE_STATUS.TERMINATED);
+      setStatus(BROKER_CONFIG_STATUS.INACTIVE);
+      setActionMessage({
+        text: `Venue ${meta.displayName} successfully decommissioned under Maker-Checker dual control by ${adminEmail}. Automated soft-stop enforced.`,
+        type: 'success',
+      });
+    } catch (err: unknown) {
+      setActionMessage({
+        text: err instanceof Error ? err.message : 'Checker approval failed',
+        type: 'error',
+      });
+    }
+  };
+
+  const handleRejectDecommission = async () => {
+    if (activeConfig?.decommissionProposal?.proposedBy === adminEmail) {
+      setActionMessage({
+        text: `Maker-Checker Violation: You (${adminEmail}) proposed this decommissioning. An independent Checker must reject it.`,
+        type: 'error',
+      });
+      return;
+    }
+    const reason = prompt(`Enter rejection reason for ${meta.displayName} decommissioning proposal:`);
+    if (!reason) return;
+
+    try {
+      const updated = await adminApi.rejectVenueDecommission(
+        selectedExchange,
+        adminEmail || 'compliance-checker-lead',
+        reason
+      );
+      setConfigs((prev) => {
+        const idx = prev.findIndex((c) => c.exchange === selectedExchange);
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = updated;
+          return next;
+        }
+        return [...prev, updated];
+      });
+      setLifecycleStatus(VENUE_LIFECYCLE_STATUS.ACTIVE);
+      setStatus(BROKER_CONFIG_STATUS.ACTIVE);
+      setActionMessage({
+        text: `Decommissioning proposal for ${meta.displayName} rejected: ${reason}`,
+        type: 'success',
+      });
+    } catch (err: unknown) {
+      setActionMessage({
+        text: err instanceof Error ? err.message : 'Checker rejection failed',
+        type: 'error',
+      });
     }
   };
 
@@ -791,6 +853,85 @@ export default function BrokerRebatesPage() {
                 })}
               </div>
             </div>
+
+            {/* Action Feedback Banner */}
+            {actionMessage && (
+              <div
+                className={`mt-4 p-3.5 rounded-xl border flex items-center justify-between gap-3 text-xs font-mono ${
+                  actionMessage.type === 'success'
+                    ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
+                    : 'bg-rose-950/40 border-rose-500/40 text-rose-300'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  {actionMessage.type === 'success' ? (
+                    <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
+                  ) : (
+                    <AlertTriangle className="h-4 w-4 shrink-0 text-rose-400" />
+                  )}
+                  <span>{actionMessage.text}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActionMessage(null)}
+                  className="text-slate-400 hover:text-white text-xs font-bold"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+
+            {/* Maker-Checker 4-Eyes Decommission Proposal Card */}
+            {activeConfig?.decommissionProposal?.status === 'PENDING_APPROVAL' && (
+              <div className="mt-4 p-4 rounded-xl border border-amber-500/40 bg-amber-950/25 space-y-3">
+                <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+                  <div className="flex items-start gap-3">
+                    <ShieldCheck className="h-5 w-5 text-amber-400 mt-0.5 shrink-0" />
+                    <div className="space-y-1">
+                      <div className="text-xs font-mono font-bold text-amber-300 uppercase tracking-wider flex items-center gap-2">
+                        <span>Maker-Checker 4-Eyes Governance: Decommission Pending Sign-off</span>
+                        <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] border border-amber-500/40 font-bold">
+                          DUAL CONTROL REQUIRED
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-300 leading-relaxed">
+                        Maker (<span className="text-white font-semibold font-mono">{activeConfig.decommissionProposal.proposedBy}</span>) proposed decommissioning for <strong className="text-white">{meta.displayName}</strong>.
+                      </p>
+                      <div className="text-xs text-slate-400 font-mono">
+                        <strong className="text-slate-300">Rationale:</strong> {activeConfig.decommissionProposal.reason}
+                      </div>
+                      {activeConfig.decommissionProposal.proposedBy === adminEmail && (
+                        <div className="text-[11px] text-amber-400 font-mono mt-1">
+                          Notice: You proposed this decommissioning. Under Segregation of Duties, another administrator (Checker) must review and approve.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={handleApproveDecommission}
+                      disabled={activeConfig.decommissionProposal.proposedBy === adminEmail}
+                      className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-mono font-bold shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
+                      title={activeConfig.decommissionProposal.proposedBy === adminEmail ? "Maker cannot approve own proposal" : "Checker: Approve and soft-stop"}
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      Approve (Checker)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleRejectDecommission}
+                      disabled={activeConfig.decommissionProposal.proposedBy === adminEmail}
+                      className="px-3 py-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-500/40 text-xs font-mono font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
+                      title={activeConfig.decommissionProposal.proposedBy === adminEmail ? "Maker cannot reject own proposal" : "Checker: Reject proposal"}
+                    >
+                      <Ban className="h-3.5 w-3.5" />
+                      Reject (Checker)
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Sunsetting Grace Period & Countdown Scheduler */}
             {(activeConfig?.lifecycleStatus || lifecycleStatus) === 'VENUE_LIFECYCLE_STATUS_SUNSETTING' && (
@@ -1611,7 +1752,7 @@ export default function BrokerRebatesPage() {
         </div>
       </div>
 
-      {/* Decommission & Graceful Soft-Stop Confirmation Modal */}
+      {/* Decommission Proposal Confirmation Modal (Maker) */}
       {showTerminatedModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="bg-[#0B0F19] border border-rose-500/40 rounded-2xl p-6 max-w-lg w-full space-y-5 shadow-[0_0_50px_rgba(244,63,94,0.25)]">
@@ -1621,22 +1762,35 @@ export default function BrokerRebatesPage() {
               </div>
               <div className="space-y-1">
                 <h3 className="text-base font-bold text-white font-mono">
-                  Confirm Venue Decommission & Soft-Stop
+                  Propose Venue Decommission (Maker)
                 </h3>
                 <p className="text-xs text-rose-300/90 leading-relaxed">
-                  You are about to permanently decommission <span className="font-bold text-white">{meta.displayName}</span>.
+                  Initiate Maker-Checker 4-Eyes dual approval workflow to decommission <span className="font-bold text-white">{meta.displayName}</span>.
                 </p>
               </div>
             </div>
 
+            <div>
+              <label className="block text-xs font-mono font-semibold text-slate-300 mb-1.5">
+                Decommission Rationale / Incident Context (Required)
+              </label>
+              <textarea
+                value={decommissionReason}
+                onChange={(e) => setDecommissionReason(e.target.value)}
+                rows={3}
+                placeholder="e.g. Venue liquidity degradation, regulatory policy update, or partner migration..."
+                className="w-full bg-[#070A12] border border-slate-800 rounded-lg p-2.5 text-xs text-slate-200 font-mono focus:outline-none focus:border-rose-500"
+              />
+            </div>
+
             <div className="p-3.5 rounded-xl bg-rose-950/20 border border-rose-500/30 text-xs text-slate-300 space-y-2">
               <div className="font-semibold text-rose-300 font-mono flex items-center gap-1.5">
-                <ShieldCheck className="h-4 w-4" /> Safety Protocol Invariants:
+                <ShieldCheck className="h-4 w-4" /> 4-Eyes Governance Policy:
               </div>
-              <ul className="list-disc list-inside space-y-1 text-slate-300">
-                <li><span className="text-white font-semibold">Zero Market Dumping</span>: All active bots will execute a graceful soft-stop cancelling resting limit orders only. User inventory will NOT be liquidated at market price.</li>
-                <li><span className="text-white font-semibold">Onboarding Block</span>: New exchange API keys and bot creation will remain forbidden.</li>
-                <li><span className="text-white font-semibold">Audit Record</span>: A permanent <code className="text-rose-400">SUNSET_SOFT_STOP</code> event will be appended to the bot history ledger.</li>
+              <ul className="list-disc list-inside space-y-1 text-slate-300 text-[11px]">
+                <li><span className="text-white font-semibold">Maker Submission</span>: Proposal will be registered under your identity (<code className="text-rose-400">{adminEmail}</code>).</li>
+                <li><span className="text-white font-semibold">Checker Verification</span>: An independent administrator must review and approve before final termination.</li>
+                <li><span className="text-white font-semibold">Zero Market Dumping</span>: When approved, all active bots will execute a graceful soft-stop cancelling resting limit orders only.</li>
               </ul>
             </div>
 
@@ -1650,11 +1804,11 @@ export default function BrokerRebatesPage() {
               </button>
               <button
                 type="button"
-                onClick={handleConfirmDecommission}
+                onClick={handleProposeDecommission}
                 className="px-4 py-2 text-xs font-mono font-semibold text-white bg-rose-600 hover:bg-rose-500 rounded-lg shadow-[0_0_15px_rgba(244,63,94,0.4)] transition-all flex items-center gap-2"
               >
-                <Ban className="h-4 w-4" />
-                Confirm Decommission
+                <ShieldCheck className="h-4 w-4" />
+                Submit Proposal (Maker)
               </button>
             </div>
           </div>
