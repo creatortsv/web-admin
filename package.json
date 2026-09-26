@@ -12,6 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@creatortsv/pkg-ui": "^0.2.0",
     "@sentry/nextjs": "^10.73.0",
     "clsx": "^2.1.1",
     "lucide-react": "^0.475.0",
