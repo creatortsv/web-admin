@@ -13,6 +13,7 @@ import {
   Clock,
   ShieldAlert,
 } from 'lucide-react';
+import { InstitutionalEmptyState } from '@creatortsv/pkg-ui';
 
 const EXCHANGE_BADGES: Record<string, { bg: string; text: string; border: string; label: string }> = {
   BINANCE: { bg: 'bg-amber-500/10', text: 'text-amber-400', border: 'border-amber-500/30', label: 'Binance' },
@@ -235,30 +236,31 @@ export default function DivergentOrdersPage() {
       </div>
 
       {/* Orders Table */}
-      <div className="rounded-xl border border-slate-800/80 bg-[#0D1322] overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left font-mono text-xs">
-            <thead className="bg-[#070A12] border-b border-slate-800 text-slate-400 uppercase tracking-wider text-[11px]">
-              <tr>
-                <th className="py-3 px-4">Order Identification</th>
-                <th className="py-3 px-4">Exchange</th>
-                <th className="py-3 px-4">Pair / Side</th>
-                <th className="py-3 px-4">Price / Qty</th>
-                <th className="py-3 px-4">Local DB Status</th>
-                <th className="py-3 px-4">Exchange Status</th>
-                <th className="py-3 px-4">Discrepancy</th>
-                <th className="py-3 px-4 text-right">Operator Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800">
-              {filteredOrders.length === 0 ? (
+      {filteredOrders.length === 0 ? (
+        <InstitutionalEmptyState
+          icon={(props: { className?: string }) => <CheckCircle2 className={props.className} />}
+          badge="LEDGER RECONCILED"
+          title="Zero Divergent Orders Detected"
+          description="All trading engine in-flight orders match exchange execution reports. No ghost fills, state mismatches, or hanging reservations found."
+        />
+      ) : (
+        <div className="rounded-xl border border-slate-800/80 bg-[#0D1322] overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left font-mono text-xs">
+              <thead className="bg-[#070A12] border-b border-slate-800 text-slate-400 uppercase tracking-wider text-[11px]">
                 <tr>
-                  <td colSpan={8} className="py-8 text-center text-slate-500">
-                    No divergent orders detected for this exchange filter. All engine and exchange states are fully synchronized.
-                  </td>
+                  <th className="py-3 px-4">Order Identification</th>
+                  <th className="py-3 px-4">Exchange</th>
+                  <th className="py-3 px-4">Pair / Side</th>
+                  <th className="py-3 px-4">Price / Qty</th>
+                  <th className="py-3 px-4">Local DB Status</th>
+                  <th className="py-3 px-4">Exchange Status</th>
+                  <th className="py-3 px-4">Discrepancy</th>
+                  <th className="py-3 px-4 text-right">Operator Actions</th>
                 </tr>
-              ) : (
-                filteredOrders.map((o) => {
+              </thead>
+              <tbody className="divide-y divide-slate-800">
+                {filteredOrders.map((o) => {
                   const ex = (o.exchange || 'BINANCE').toUpperCase();
                   const badge = EXCHANGE_BADGES[ex] || EXCHANGE_BADGES.BINANCE;
 
@@ -353,12 +355,12 @@ export default function DivergentOrdersPage() {
                       </td>
                     </tr>
                   );
-                })
-              )}
-            </tbody>
-          </table>
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

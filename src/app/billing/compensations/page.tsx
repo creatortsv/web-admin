@@ -17,6 +17,7 @@ import {
   Clock,
   UserCheck,
 } from 'lucide-react';
+import { InstitutionalEmptyState } from '@creatortsv/pkg-ui';
 
 export default function CompensationClaimsPage() {
   const { adminEmail } = useAdminAuthStore();
@@ -272,29 +273,34 @@ export default function CompensationClaimsPage() {
       </div>
 
       {/* Claims Table */}
-      <div className="rounded-xl border border-slate-800/80 bg-[#0D1322] overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left font-mono text-xs">
-            <thead className="bg-[#070A12] border-b border-slate-800 text-slate-400 uppercase tracking-wider text-[11px]">
-              <tr>
-                <th className="py-3 px-4">Claim & Incident</th>
-                <th className="py-3 px-4">User</th>
-                <th className="py-3 px-4">Amount</th>
-                <th className="py-3 px-4">Reason & Evidence</th>
-                <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4">Audit Trail</th>
-                <th className="py-3 px-4 text-right">Checker Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800">
-              {filteredClaims.length === 0 ? (
+      {filteredClaims.length === 0 ? (
+        <InstitutionalEmptyState
+          icon={(props: { className?: string }) => <ShieldCheck className={props.className} />}
+          badge="AUDIT COMPLIANT"
+          title="No Pending Approvals"
+          description="All dual-custody Maker-Checker mutations have been reviewed. No items require 4-Eyes confirmation."
+          primaryAction={{
+            label: 'Create Claim (Maker)',
+            onClick: () => setIsModalOpen(true),
+          }}
+        />
+      ) : (
+        <div className="rounded-xl border border-slate-800/80 bg-[#0D1322] overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left font-mono text-xs">
+              <thead className="bg-[#070A12] border-b border-slate-800 text-slate-400 uppercase tracking-wider text-[11px]">
                 <tr>
-                  <td colSpan={7} className="py-8 text-center text-slate-500">
-                    No compensation claims found for the selected filter.
-                  </td>
+                  <th className="py-3 px-4">Claim & Incident</th>
+                  <th className="py-3 px-4">User</th>
+                  <th className="py-3 px-4">Amount</th>
+                  <th className="py-3 px-4">Reason & Evidence</th>
+                  <th className="py-3 px-4">Status</th>
+                  <th className="py-3 px-4">Audit Trail</th>
+                  <th className="py-3 px-4 text-right">Checker Actions</th>
                 </tr>
-              ) : (
-                filteredClaims.map((c) => (
+              </thead>
+              <tbody className="divide-y divide-slate-800">
+                {filteredClaims.map((c) => (
                   <tr key={c.id} className="hover:bg-slate-900/50 transition-colors">
                     <td className="py-3.5 px-4">
                       <div className="font-bold text-white">{c.incidentId}</div>
@@ -375,12 +381,12 @@ export default function CompensationClaimsPage() {
                       )}
                     </td>
                   </tr>
-                ))
-              )}
+                ))}
             </tbody>
           </table>
         </div>
       </div>
+      )}
 
       {/* Modal: New Claim (Maker) */}
       {isModalOpen && (
