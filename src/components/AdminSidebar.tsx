@@ -81,7 +81,7 @@ export const AdminSidebar: React.FC = () => {
         <div className="flex items-center justify-between mb-4">
           <div className="flex flex-col">
             <span className="text-sm font-semibold text-white truncate max-w-[160px] font-mono">
-              {adminEmail.split('@')[0]}
+              {adminEmail ? adminEmail.split('@')[0] : 'Admin'}
             </span>
             <span className="text-xs uppercase font-bold text-rose-400 font-mono tracking-wider mt-0.5">
               {role.replace('_', ' ')}

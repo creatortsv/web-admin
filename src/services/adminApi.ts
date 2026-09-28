@@ -161,6 +161,8 @@ import {
   UpdateBrokerConfigWireRequest,
   DecommissionProposal,
 } from '../types/contracts/brokerConfig';
+import { useAdminAuthStore } from '../stores/useAdminAuthStore';
+import { STORAGE_KEYS } from '../lib/constants/storage';
 
 export { ATTRIBUTION_TYPE, VENUE_LIFECYCLE_STATUS, BROKER_CONFIG_STATUS };
 export type { DecommissionProposal };
@@ -435,20 +437,80 @@ export function generateTraceparent(): string {
 
 export async function adminFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   let target = input;
+  let headers: Headers;
+  if (input instanceof Request) {
+    target = input.url;
+    headers = new Headers(input.headers);
+    if (init?.headers) {
+      new Headers(init.headers).forEach((v, k) => headers.set(k, v));
+    }
+  } else {
+    headers = new Headers(init?.headers);
+  }
+
   if (typeof target === 'string' && target.startsWith('/')) {
     if (typeof window === 'undefined') {
       const port = process.env.PORT || '3002';
       target = `http://127.0.0.1:${port}${target}`;
     }
   }
-  const headers = new Headers(init?.headers);
+
   if (!headers.has('traceparent')) {
     headers.set('traceparent', generateTraceparent());
   }
-  return fetch(target, {
+
+  // Retrieve active JWT from useAdminAuthStore or localStorage
+  let token: string | null = null;
+  try {
+    token = useAdminAuthStore.getState().accessToken;
+  } catch {
+    // store may not be initialized yet
+  }
+  if (!token && typeof window !== 'undefined' && window.localStorage) {
+    try {
+      token = localStorage.getItem(STORAGE_KEYS.ADMIN_ACCESS_TOKEN);
+    } catch {
+      // ignore
+    }
+  }
+
+  if (token && !headers.has('Authorization') && !headers.has('authorization')) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  const response = await fetch(target, {
     ...init,
     headers,
   });
+
+  if (response.status === 401) {
+    // Clear stored token from store and localStorage
+    try {
+      useAdminAuthStore.getState().logout();
+    } catch {
+      // ignore
+    }
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        localStorage.removeItem(STORAGE_KEYS.ADMIN_ACCESS_TOKEN);
+      } catch {
+        // ignore
+      }
+    }
+
+    // Trigger redirect to /login if not already on an auth endpoint or /login
+    if (typeof window !== 'undefined') {
+      const urlStr = typeof input === 'string'
+        ? input
+        : (input instanceof URL ? input.pathname : (input instanceof Request ? input.url : ''));
+      const isAuthEndpoint = urlStr.includes('/v1/auth/login') || urlStr.includes('/v1/auth/totp/verify');
+      if (!isAuthEndpoint && window.location && window.location.pathname !== '/login') {
+        window.location.href = '/login';
+      }
+    }
+  }
+
+  return response;
 }
 
 const memoryStorage = new Map<string, string>();
@@ -530,7 +592,7 @@ export const adminApi = {
       // Fallback for standalone dev
     }
 
-    const saved = getStorageItem('vf_admin_vaults');
+    const saved = getStorageItem(STORAGE_KEYS.ADMIN_VAULTS);
     if (saved) {
       try {
         return JSON.parse(saved);
@@ -554,12 +616,12 @@ export const adminApi = {
       // Fallback for standalone dev
     }
 
-    const saved = getStorageItem('vf_admin_vaults');
+    const saved = getStorageItem(STORAGE_KEYS.ADMIN_VAULTS);
     const list: TreasuryVault[] = saved ? JSON.parse(saved) : [];
     const idx = list.findIndex((v) => v.id === vault.id);
     if (idx >= 0) list[idx] = vault;
     else list.push(vault);
-    setStorageItem('vf_admin_vaults', JSON.stringify(list));
+    setStorageItem(STORAGE_KEYS.ADMIN_VAULTS, JSON.stringify(list));
     return vault;
   },
 
@@ -612,7 +674,7 @@ export const adminApi = {
     }
 
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('vf_admin_payments');
+      const saved = localStorage.getItem(STORAGE_KEYS.ADMIN_PAYMENTS);
       if (saved) {
         try {
           return JSON.parse(saved);
@@ -624,12 +686,12 @@ export const adminApi = {
 
   savePaymentGateway: async (config: PaymentGatewayConfig): Promise<void> => {
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('vf_admin_payments');
+      const saved = localStorage.getItem(STORAGE_KEYS.ADMIN_PAYMENTS);
       const list: PaymentGatewayConfig[] = saved ? JSON.parse(saved) : [];
       const idx = list.findIndex((p) => p.id === config.id);
       if (idx >= 0) list[idx] = config;
       else list.push(config);
-      localStorage.setItem('vf_admin_payments', JSON.stringify(list));
+      localStorage.setItem(STORAGE_KEYS.ADMIN_PAYMENTS, JSON.stringify(list));
     }
   },
 
@@ -654,7 +716,7 @@ export const adminApi = {
     }
 
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('vf_admin_users');
+      const saved = localStorage.getItem(STORAGE_KEYS.ADMIN_USERS);
       if (saved) {
         try {
           return JSON.parse(saved);
@@ -688,7 +750,7 @@ export const adminApi = {
     }
 
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('vf_admin_fleet_bots');
+      const saved = localStorage.getItem(STORAGE_KEYS.ADMIN_FLEET_BOTS);
       if (saved) {
         try {
           return JSON.parse(saved);
@@ -710,7 +772,7 @@ export const adminApi = {
     }
 
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('vf_admin_universal_gateways');
+      const saved = localStorage.getItem(STORAGE_KEYS.UNIVERSAL_GATEWAYS);
       if (saved) return JSON.parse(saved);
     }
 
