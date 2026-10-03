@@ -20,12 +20,9 @@ resolves only from `readJsonOrThrow` (`src/services/adminApiError.ts`):
   when the backend omits them;
 - the readers take the lowerCamelCase keys that grpc-gateway's default marshaler writes
   (Standards §4.5), and an enum-typed field must carry one of the values of its contract; any
-  other value rejects with `AdminContractError` instead of being cast to the UI type. One
-  exception is open: `parseBrokerConfigWire` still also accepts the snake_case spelling of
-  eight required fields (`is_active`, `rebate_percentage`, `attribution_type`,
-  `lifecycle_status`, `masked_identifier`, `has_encrypted_secrets`, `updated_at`, `updated_by`),
-  because two success-response cases of `test/brokerRebatesGovernance.test.ts` that predate
-  WP-0.8b still send them.
+  other value rejects with `AdminContractError` instead of being cast to the UI type. Only
+  lowerCamelCase is accepted, including by `parseBrokerConfigWire`: a field written only in
+  snake_case (for example `is_active`) is a missing field and rejects.
 
 Pages render four states for every backend read: loading (`Skeleton`), error (a
 `@creatortsv/pkg-ui` `Alert` with the HTTP status and reason, for example

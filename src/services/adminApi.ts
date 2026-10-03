@@ -377,8 +377,8 @@ function parseDecommissionProposal(wire: WireObject): DecommissionProposal {
  * [Policy Ref: Contract §2.1 - no fake data; Security §4.6 - no false security claim]
  */
 export function parseBrokerConfigWire(wire: WireObject): BrokerConfigDTO {
-  const isActive = wire.boolean('isActive', 'is_active');
-  const rebatePercentage = wire.number('rebatePercentage', 'rebate_percentage');
+  const isActive = wire.boolean('isActive');
+  const rebatePercentage = wire.number('rebatePercentage');
   const payloadParams = wire.optionalStringMap('payloadParams');
   const proposal = wire.optionalObject('decommissionProposal');
 
@@ -386,13 +386,13 @@ export function parseBrokerConfigWire(wire: WireObject): BrokerConfigDTO {
     id: wire.optionalString('id'),
     exchange: normalizeExchangeKey(wire.nonEmptyString('exchange')),
     environment: wire.string('environment'),
-    attributionType: wire.oneOf(Object.values(ATTRIBUTION_TYPE), 'attributionType', 'attribution_type'),
+    attributionType: wire.oneOf(Object.values(ATTRIBUTION_TYPE), 'attributionType'),
     status: isActive ? BROKER_CONFIG_STATUS.ACTIVE : BROKER_CONFIG_STATUS.INACTIVE,
-    lifecycleStatus: wire.oneOf(Object.values(VENUE_LIFECYCLE_STATUS), 'lifecycleStatus', 'lifecycle_status'),
+    lifecycleStatus: wire.oneOf(Object.values(VENUE_LIFECYCLE_STATUS), 'lifecycleStatus'),
     sunsetDeadline: wire.optionalString('sunsetDeadline') ?? null,
     sunsetNotice: wire.optionalString('sunsetNotice') ?? null,
-    maskedIdentifier: wire.string('maskedIdentifier', 'masked_identifier'),
-    isKmsSealed: wire.boolean('hasEncryptedSecrets', 'has_encrypted_secrets'),
+    maskedIdentifier: wire.string('maskedIdentifier'),
+    isKmsSealed: wire.boolean('hasEncryptedSecrets'),
     rebateRateBps: Math.round(rebatePercentage * 100),
     rebatePercentage,
     clientOrderIdPrefix: wire.optionalString('clientOrderIdPrefix'),
@@ -401,8 +401,8 @@ export function parseBrokerConfigWire(wire: WireObject): BrokerConfigDTO {
     payloadParams,
     payoutAddress: wire.optionalString('payoutAddress'),
     version: wire.number('version'),
-    updatedAt: wire.string('updatedAt', 'updated_at'),
-    updatedBy: wire.string('updatedBy', 'updated_by'),
+    updatedAt: wire.string('updatedAt'),
+    updatedBy: wire.string('updatedBy'),
     extraParams: payloadParams,
     decommissionProposal: proposal === undefined ? undefined : parseDecommissionProposal(proposal),
   };
