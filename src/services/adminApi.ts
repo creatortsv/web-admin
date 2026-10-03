@@ -163,6 +163,7 @@ import {
 } from '../types/contracts/brokerConfig';
 import { useAdminAuthStore } from '../stores/useAdminAuthStore';
 import { STORAGE_KEYS } from '../lib/constants/storage';
+import { readJsonOrThrow } from './adminApiError';
 
 export { ATTRIBUTION_TYPE, VENUE_LIFECYCLE_STATUS, BROKER_CONFIG_STATUS };
 export type { DecommissionProposal };
@@ -513,116 +514,55 @@ export async function adminFetch(input: RequestInfo | URL, init?: RequestInit): 
   return response;
 }
 
-const memoryStorage = new Map<string, string>();
+// Wire bodies are read structurally here; the typed generated admin client of WP-8.5a replaces this alias.
+type AdminWireBody = Record<string, any>;
 
-export function getStorageItem(key: string): string | null {
-  if (typeof window !== 'undefined' && window.localStorage) {
-    return localStorage.getItem(key);
-  }
-  return memoryStorage.get(key) ?? null;
-}
-
-export function setStorageItem(key: string, value: string): void {
-  if (typeof window !== 'undefined' && window.localStorage) {
-    localStorage.setItem(key, value);
-  }
-  memoryStorage.set(key, value);
-}
-
-export function clearMemoryStorage(): void {
-  memoryStorage.clear();
-}
-
-// Static Datasets purged in accordance with Zero Mock Data Policy
-export const INITIAL_VAULTS: readonly TreasuryVault[] = [];
-export const INITIAL_PAYMENTS: readonly PaymentGatewayConfig[] = [];
-export const INITIAL_VENUES: readonly any[] = [];
-
+/**
+ * Every method calls the backend through `adminFetch` and resolves only from `readJsonOrThrow`.
+ * No method returns local, cached, default or invented data and none reports success without a 2xx.
+ * [Policy Ref: Contract §2.1 - fake data and fake success]
+ * [Policy Ref: Standards §6.4 - zero fallback mocking]
+ */
 export const adminApi = {
   getSystemStats: async (): Promise<SystemStats> => {
-    try {
-      const res = await adminFetch('/v1/admin/stats');
-      if (res.ok) {
-        const data = await res.json();
-        return {
-          activeBotsCount: Number.isFinite(Number(data.activeBotsCount ?? data.active_bots_count)) ? Number(data.activeBotsCount ?? data.active_bots_count) : 0,
-          totalVolume24hUsd: Number.isFinite(Number(data.totalVolume24hUsd ?? data.total_volume_24h_usd)) ? Number(data.totalVolume24hUsd ?? data.total_volume_24h_usd) : 0,
-          pendingSweepUsd: Number.isFinite(Number(data.pendingSweepUsd ?? data.pending_sweep_usd)) ? Number(data.pendingSweepUsd ?? data.pending_sweep_usd) : 0,
-          gatewayStatus: (data.gatewayStatus || data.gateway_status || 'HEALTHY') as SystemStats['gatewayStatus'],
-          kafkaLag: Number.isFinite(Number(data.kafkaLag ?? data.kafka_lag)) ? Number(data.kafkaLag ?? data.kafka_lag) : 0,
-          dbConnections: Number.isFinite(Number(data.dbConnections ?? data.db_connections)) ? Number(data.dbConnections ?? data.db_connections) : 0,
-          redisMemoryMb: Number.isFinite(Number(data.redisMemoryMb ?? data.redis_memory_mb)) ? Number(data.redisMemoryMb ?? data.redis_memory_mb) : 0,
-        };
-      }
-    } catch {
-      // Offline fallback: zero-based default state
-    }
-
+    const data = await readJsonOrThrow<AdminWireBody>(await adminFetch('/v1/admin/stats'));
     return {
-      activeBotsCount: 0,
-      totalVolume24hUsd: 0,
-      pendingSweepUsd: 0,
-      gatewayStatus: 'HEALTHY',
-      kafkaLag: 0,
-      dbConnections: 0,
-      redisMemoryMb: 0,
+      activeBotsCount: Number.isFinite(Number(data.activeBotsCount ?? data.active_bots_count)) ? Number(data.activeBotsCount ?? data.active_bots_count) : 0,
+      totalVolume24hUsd: Number.isFinite(Number(data.totalVolume24hUsd ?? data.total_volume_24h_usd)) ? Number(data.totalVolume24hUsd ?? data.total_volume_24h_usd) : 0,
+      pendingSweepUsd: Number.isFinite(Number(data.pendingSweepUsd ?? data.pending_sweep_usd)) ? Number(data.pendingSweepUsd ?? data.pending_sweep_usd) : 0,
+      gatewayStatus: (data.gatewayStatus || data.gateway_status) as SystemStats['gatewayStatus'],
+      kafkaLag: Number.isFinite(Number(data.kafkaLag ?? data.kafka_lag)) ? Number(data.kafkaLag ?? data.kafka_lag) : 0,
+      dbConnections: Number.isFinite(Number(data.dbConnections ?? data.db_connections)) ? Number(data.dbConnections ?? data.db_connections) : 0,
+      redisMemoryMb: Number.isFinite(Number(data.redisMemoryMb ?? data.redis_memory_mb)) ? Number(data.redisMemoryMb ?? data.redis_memory_mb) : 0,
     };
   },
 
   getTreasuryVaults: async (): Promise<TreasuryVault[]> => {
-    try {
-      const res = await adminFetch('/v1/treasury/admin/vaults');
-      if (res.ok) {
-        const data = await res.json();
-        const rawVaults = Array.isArray(data.vaults) ? data.vaults : (Array.isArray(data) ? data : []);
-        return rawVaults.map((v: any): TreasuryVault => ({
-          id: String(v.id || ''),
-          chain: String(v.chain || ''),
-          asset: String(v.asset || 'USDT'),
-          receivingAddress: String(v.receivingAddress || v.receiving_address || ''),
-          coldSweepAddress: String(v.coldSweepAddress || v.cold_sweep_address || ''),
-          minDepositUsd: Number.isFinite(Number(v.minDepositUsd ?? v.min_deposit_usd)) ? Number(v.minDepositUsd ?? v.min_deposit_usd) : 0,
-          sweepThresholdUsd: Number.isFinite(Number(v.sweepThresholdUsd ?? v.sweep_threshold_usd)) ? Number(v.sweepThresholdUsd ?? v.sweep_threshold_usd) : 0,
-          currentBalanceUsd: Number.isFinite(Number(v.currentBalanceUsd ?? v.current_balance_usd)) ? Number(v.currentBalanceUsd ?? v.current_balance_usd) : 0,
-          isActive: v.isActive !== undefined ? Boolean(v.isActive) : Boolean(v.is_active ?? true),
-          updatedAt: String(v.updatedAt || v.updated_at || new Date().toISOString()),
-        }));
-      }
-    } catch {
-      // Fallback for standalone dev
-    }
-
-    const saved = getStorageItem(STORAGE_KEYS.ADMIN_VAULTS);
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch { /* ignore corrupted */ }
-    }
-    return [];
+    const data = await readJsonOrThrow<AdminWireBody>(await adminFetch('/v1/treasury/admin/vaults'));
+    const rawVaults = Array.isArray(data.vaults) ? data.vaults : (Array.isArray(data) ? data : []);
+    return rawVaults.map((v: any): TreasuryVault => ({
+      id: String(v.id || ''),
+      chain: String(v.chain || ''),
+      asset: String(v.asset || 'USDT'),
+      receivingAddress: String(v.receivingAddress || v.receiving_address || ''),
+      coldSweepAddress: String(v.coldSweepAddress || v.cold_sweep_address || ''),
+      minDepositUsd: Number.isFinite(Number(v.minDepositUsd ?? v.min_deposit_usd)) ? Number(v.minDepositUsd ?? v.min_deposit_usd) : 0,
+      sweepThresholdUsd: Number.isFinite(Number(v.sweepThresholdUsd ?? v.sweep_threshold_usd)) ? Number(v.sweepThresholdUsd ?? v.sweep_threshold_usd) : 0,
+      currentBalanceUsd: Number.isFinite(Number(v.currentBalanceUsd ?? v.current_balance_usd)) ? Number(v.currentBalanceUsd ?? v.current_balance_usd) : 0,
+      isActive: v.isActive !== undefined ? Boolean(v.isActive) : Boolean(v.is_active ?? true),
+      updatedAt: String(v.updatedAt || v.updated_at || new Date().toISOString()),
+    }));
   },
 
   saveTreasuryVault: async (vault: TreasuryVault): Promise<TreasuryVault> => {
-    try {
-      const res = await adminFetch('/v1/treasury/admin/vaults', {
+    const data = await readJsonOrThrow<{ vault: TreasuryVault }>(
+      await adminFetch('/v1/treasury/admin/vaults', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ vault }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.vault) return data.vault;
-      }
-    } catch {
-      // Fallback for standalone dev
-    }
-
-    const saved = getStorageItem(STORAGE_KEYS.ADMIN_VAULTS);
-    const list: TreasuryVault[] = saved ? JSON.parse(saved) : [];
-    const idx = list.findIndex((v) => v.id === vault.id);
-    if (idx >= 0) list[idx] = vault;
-    else list.push(vault);
-    setStorageItem(STORAGE_KEYS.ADMIN_VAULTS, JSON.stringify(list));
-    return vault;
+      })
+    );
+    return data.vault;
   },
 
   triggerSweep: async (
@@ -639,261 +579,97 @@ export const adminApi = {
         force,
       }),
     });
-    if (res.ok) {
-      const data = await res.json();
-      return {
-        success: Boolean(data.success ?? true),
-        sweepId: data.sweepId || data.sweep_id,
-        txHash: data.txHash || data.tx_hash,
-        message: data.message || `Cold storage sweep initiated successfully for vault ${vaultId}`,
-      };
-    }
-    let errText = '';
-    try {
-      if (typeof res.text === 'function') {
-        errText = await res.text();
-      } else if (typeof res.json === 'function') {
-        const j = await res.json();
-        errText = (j && j.error) ? String(j.error) : JSON.stringify(j);
+    if (!res.ok) {
+      let errText = '';
+      try {
+        if (typeof res.text === 'function') {
+          errText = await res.text();
+        } else if (typeof res.json === 'function') {
+          const j = await res.json();
+          errText = (j && j.error) ? String(j.error) : JSON.stringify(j);
+        }
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore
+      throw new Error(`Sweep initiation failed (HTTP ${res.status}): ${errText || res.statusText || 'Treasury service unreachable'}`);
     }
-    throw new Error(`Sweep initiation failed (HTTP ${res.status}): ${errText || res.statusText || 'Treasury service unreachable'}`);
+    const data = await readJsonOrThrow<AdminWireBody>(res);
+    return {
+      success: Boolean(data.success),
+      sweepId: data.sweepId || data.sweep_id,
+      txHash: data.txHash || data.tx_hash,
+      message: String(data.message ?? ''),
+    };
   },
 
   getPaymentGateways: async (): Promise<PaymentGatewayConfig[]> => {
-    try {
-      const res = await adminFetch('/v1/billing/gateways');
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data.gateways)) return data.gateways;
-      }
-    } catch {
-      // Fallback
-    }
-
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(STORAGE_KEYS.ADMIN_PAYMENTS);
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch { /* ignore corrupted */ }
-      }
-    }
-    return [];
-  },
-
-  savePaymentGateway: async (config: PaymentGatewayConfig): Promise<void> => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(STORAGE_KEYS.ADMIN_PAYMENTS);
-      const list: PaymentGatewayConfig[] = saved ? JSON.parse(saved) : [];
-      const idx = list.findIndex((p) => p.id === config.id);
-      if (idx >= 0) list[idx] = config;
-      else list.push(config);
-      localStorage.setItem(STORAGE_KEYS.ADMIN_PAYMENTS, JSON.stringify(list));
-    }
+    const data = await readJsonOrThrow<AdminWireBody>(await adminFetch('/v1/billing/gateways'));
+    return Array.isArray(data.gateways) ? data.gateways : [];
   },
 
   getUsers: async (): Promise<AdminUser[]> => {
-    try {
-      const res = await adminFetch('/v1/admin/users');
-      if (res.ok) {
-        const data = await res.json();
-        const rawUsers = Array.isArray(data.users) ? data.users : (Array.isArray(data) ? data : []);
-        return rawUsers.map((u: any): AdminUser => ({
-          id: String(u.id || ''),
-          email: String(u.email || ''),
-          role: (u.role || 'trader') as AdminUser['role'],
-          status: (u.status || 'ACTIVE') as AdminUser['status'],
-          activeBotsCount: Number.isFinite(Number(u.activeBotsCount ?? u.active_bots_count)) ? Number(u.activeBotsCount ?? u.active_bots_count) : 0,
-          totalVolumeUsd: Number.isFinite(Number(u.totalVolumeUsd ?? u.total_volume_usd)) ? Number(u.totalVolumeUsd ?? u.total_volume_usd) : 0,
-          createdAt: String(u.createdAt || u.created_at || new Date().toISOString()),
-        }));
-      }
-    } catch {
-      // Fallback
-    }
-
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(STORAGE_KEYS.ADMIN_USERS);
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch { /* ignore corrupted */ }
-      }
-    }
-    return [];
+    const data = await readJsonOrThrow<AdminWireBody>(await adminFetch('/v1/admin/users'));
+    const rawUsers = Array.isArray(data.users) ? data.users : (Array.isArray(data) ? data : []);
+    return rawUsers.map((u: any): AdminUser => ({
+      id: String(u.id || ''),
+      email: String(u.email || ''),
+      role: (u.role || 'trader') as AdminUser['role'],
+      status: (u.status || 'ACTIVE') as AdminUser['status'],
+      activeBotsCount: Number.isFinite(Number(u.activeBotsCount ?? u.active_bots_count)) ? Number(u.activeBotsCount ?? u.active_bots_count) : 0,
+      totalVolumeUsd: Number.isFinite(Number(u.totalVolumeUsd ?? u.total_volume_usd)) ? Number(u.totalVolumeUsd ?? u.total_volume_usd) : 0,
+      createdAt: String(u.createdAt || u.created_at || new Date().toISOString()),
+    }));
   },
 
   getFleetBots: async (): Promise<FleetBot[]> => {
-    try {
-      const res = await adminFetch('/v1/admin/bots');
-      if (res.ok) {
-        const data = await res.json();
-        const rawBots = Array.isArray(data.bots) ? data.bots : (Array.isArray(data) ? data : []);
-        return rawBots.map((b: any): FleetBot => ({
-          id: String(b.id || ''),
-          userId: String(b.userId || b.user_id || ''),
-          label: String(b.label || b.name || ''),
-          strategy: String(b.strategy || ''),
-          symbol: String(b.symbol || ''),
-          exchange: b.exchange ? String(b.exchange) : undefined,
-          status: (b.status || 'STOPPED') as FleetBot['status'],
-          activeOrders: Number.isFinite(Number(b.activeOrders ?? b.active_orders)) ? Number(b.activeOrders ?? b.active_orders) : 0,
-          unrealizedPnlUsd: Number.isFinite(Number(b.unrealizedPnlUsd ?? b.unrealized_pnl_usd)) ? Number(b.unrealizedPnlUsd ?? b.unrealized_pnl_usd) : 0,
-          startedAt: String(b.startedAt || b.started_at || new Date().toISOString()),
-        }));
-      }
-    } catch {
-      // Fallback
-    }
-
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(STORAGE_KEYS.ADMIN_FLEET_BOTS);
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch { /* ignore corrupted */ }
-      }
-    }
-    return [];
+    const data = await readJsonOrThrow<AdminWireBody>(await adminFetch('/v1/admin/bots'));
+    const rawBots = Array.isArray(data.bots) ? data.bots : (Array.isArray(data) ? data : []);
+    return rawBots.map((b: any): FleetBot => ({
+      id: String(b.id || ''),
+      userId: String(b.userId || b.user_id || ''),
+      label: String(b.label || b.name || ''),
+      strategy: String(b.strategy || ''),
+      symbol: String(b.symbol || ''),
+      exchange: b.exchange ? String(b.exchange) : undefined,
+      status: (b.status || 'STOPPED') as FleetBot['status'],
+      activeOrders: Number.isFinite(Number(b.activeOrders ?? b.active_orders)) ? Number(b.activeOrders ?? b.active_orders) : 0,
+      unrealizedPnlUsd: Number.isFinite(Number(b.unrealizedPnlUsd ?? b.unrealized_pnl_usd)) ? Number(b.unrealizedPnlUsd ?? b.unrealized_pnl_usd) : 0,
+      startedAt: String(b.startedAt || b.started_at || new Date().toISOString()),
+    }));
   },
 
   listUniversalGateways: async (): Promise<UniversalGateway[]> => {
-    try {
-      const res = await adminFetch('/v1/billing/gateways');
-      if (res.ok) {
-        const data = await res.json();
-        if (data.gateways) return data.gateways;
-      }
-    } catch {
-      // Fallback for standalone dev
-    }
-
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(STORAGE_KEYS.UNIVERSAL_GATEWAYS);
-      if (saved) return JSON.parse(saved);
-    }
-
-    return [
-      {
-        name: 'stripe',
-        displayName: 'Stripe (Credit / Debit Card)',
-        type: 'FIAT_CARD',
-        isEnabled: false,
-        environment: 'test',
-      },
-      {
-        name: 'mock',
-        displayName: 'Mock Simulator (Sandbox)',
-        type: 'MOCK',
-        isEnabled: true,
-        environment: 'test',
-      },
-      {
-        name: 'lemonsqueezy',
-        displayName: 'Lemon Squeezy',
-        type: 'MERCHANT_OF_RECORD',
-        isEnabled: false,
-        environment: 'test',
-      },
-    ];
+    const data = await readJsonOrThrow<{ gateways?: UniversalGateway[] }>(await adminFetch('/v1/billing/gateways'));
+    return data.gateways ?? [];
   },
 
   getUniversalGatewayConfig: async (
     gatewayName: string,
     environment = 'TEST'
   ): Promise<UniversalGatewayConfig> => {
-    try {
-      const res = await adminFetch(
+    const data = await readJsonOrThrow<{ config: UniversalGatewayConfig }>(
+      await adminFetch(
         `/v1/billing/gateways/${encodeURIComponent(gatewayName)}/config?environment=${encodeURIComponent(
           environment
         )}`
-      );
-      if (res.ok) {
-        const data = await res.json();
-        if (data.config) return data.config;
-      }
-    } catch {
-      // Fallback for standalone dev
-    }
-
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(`vf_admin_cfg_${gatewayName}_${environment}`);
-      if (saved) return JSON.parse(saved);
-    }
-
-    return {
-      gatewayName,
-      displayName: gatewayName === 'stripe' ? 'Stripe' : gatewayName,
-      type: 'FIAT_CARD',
-      isEnabled: gatewayName === 'mock',
-      environment,
-      version: 1,
-      status: 'ACTIVE',
-      maskedSecretKey: gatewayName === 'mock' ? 'mock_secret' : '',
-      maskedWebhookSecret: gatewayName === 'mock' ? 'whsec_mock' : '',
-      isSealed: gatewayName === 'mock',
-      planPriceMappings: {
-        STARTER: 'price_starter_test',
-        PRO: 'price_pro_test',
-        ENTERPRISE: 'price_enterprise_test',
-      },
-      webhookUrl: `/v1/billing/webhooks/${gatewayName}`,
-      updatedAt: new Date().toISOString(),
-    };
+      )
+    );
+    return data.config;
   },
 
   updateUniversalGatewayConfig: async (
     req: UpdateGatewayConfigRequest
   ): Promise<{ config: UniversalGatewayConfig; message: string }> => {
-    try {
-      const res = await adminFetch(
+    return readJsonOrThrow<{ config: UniversalGatewayConfig; message: string }>(
+      await adminFetch(
         `/v1/billing/gateways/${encodeURIComponent(req.gatewayName)}/config`,
         {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(req),
         }
-      );
-      if (res.ok) {
-        return await res.json();
-      }
-    } catch {
-      // Fallback for standalone dev
-    }
-
-    const nextConfig: UniversalGatewayConfig = {
-      gatewayName: req.gatewayName,
-      displayName: req.gatewayName === 'stripe' ? 'Stripe' : req.gatewayName,
-      type: 'FIAT_CARD',
-      isEnabled: req.isEnabled,
-      environment: req.environment,
-      version: 2,
-      status: 'ACTIVE',
-      maskedSecretKey:
-        req.secretKey.length > 8
-          ? '******' + req.secretKey.slice(-4)
-          : req.secretKey ? '******' : '',
-      maskedWebhookSecret: req.webhookSecret ? 'whsec_******' : '',
-      isSealed: true,
-      planPriceMappings: req.planPriceMappings,
-      webhookUrl: `/v1/billing/webhooks/${req.gatewayName}`,
-      updatedAt: new Date().toISOString(),
-    };
-
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(
-        `vf_admin_cfg_${req.gatewayName}_${req.environment}`,
-        JSON.stringify(nextConfig)
-      );
-    }
-
-    return {
-      config: nextConfig,
-      message: `Payment gateway ${req.gatewayName} configuration updated to version ${nextConfig.version}`,
-    };
+      )
+    );
   },
 
   testGatewayConnection: async (
@@ -901,8 +677,8 @@ export const adminApi = {
     environment = 'TEST',
     secretKey = ''
   ): Promise<TestConnectionResponse> => {
-    try {
-      const res = await adminFetch(
+    return readJsonOrThrow<TestConnectionResponse>(
+      await adminFetch(
         `/v1/billing/gateways/${encodeURIComponent(gatewayName)}/test`,
         {
           method: 'POST',
@@ -913,205 +689,89 @@ export const adminApi = {
             secret_key: secretKey,
           }),
         }
-      );
-      if (res.ok) {
-        return await res.json();
-      }
-    } catch {
-      // Fallback for standalone dev
-    }
-
-    if (gatewayName === 'mock') {
-      return {
-        success: true,
-        message: 'Mock payment gateway connection active and healthy',
-      };
-    }
-
-    if (secretKey || gatewayName === 'stripe') {
-      return {
-        success: true,
-        message: `Stripe API connection verified successfully (${environment} environment)`,
-      };
-    }
-
-    return {
-      success: false,
-      message: 'API Key is empty or invalid',
-    };
+      )
+    );
   },
 
   // Divergent Orders Governance Console
   getDivergentOrders: async (): Promise<DivergentOrder[]> => {
-    try {
-      const res = await adminFetch('/v1/trading/admin/divergent-orders');
-      if (res.ok) {
-        const data = await res.json();
-        const rawList = Array.isArray(data.orders) ? data.orders : (Array.isArray(data) ? data : []);
-        return rawList.map((o: any): DivergentOrder => ({
-          id: String(o.id || ''),
-          clientOrderId: String(o.clientOrderId || o.client_order_id || ''),
-          userId: String(o.userId || o.user_id || ''),
-          botId: o.botId || o.bot_id ? String(o.botId || o.bot_id) : undefined,
-          symbol: String(o.symbol || ''),
-          exchange: o.exchange ? String(o.exchange) : undefined,
-          side: (o.side || 'BUY') as DivergentOrder['side'],
-          orderType: (o.orderType || o.order_type || 'LIMIT') as DivergentOrder['orderType'],
-          price: String(o.price || '0'),
-          quantity: String(o.quantity || '0'),
-          localStatus: (o.localStatus || o.local_status || 'IN_FLIGHT_UNKNOWN') as DivergentOrder['localStatus'],
-          exchangeStatus: (o.exchangeStatus || o.exchange_status || 'NEW') as DivergentOrder['exchangeStatus'],
-          discrepancyType: (o.discrepancyType || o.discrepancy_type || 'STATE_MISMATCH') as DivergentOrder['discrepancyType'],
-          lastCheckedAt: String(o.lastCheckedAt || o.last_checked_at || new Date().toISOString()),
-          createdAt: String(o.createdAt || o.created_at || new Date().toISOString()),
-          divergenceAgeSeconds: Number.isFinite(Number(o.divergenceAgeSeconds ?? o.divergence_age_seconds)) ? Number(o.divergenceAgeSeconds ?? o.divergence_age_seconds) : 0,
-        }));
-      }
-    } catch {
-      // Fallback
-    }
-
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('vf_admin_divergent_orders');
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch { /* ignore corrupted */ }
-      }
-    }
-    return [];
+    const data = await readJsonOrThrow<AdminWireBody>(await adminFetch('/v1/trading/admin/divergent-orders'));
+    const rawList = Array.isArray(data.orders) ? data.orders : (Array.isArray(data) ? data : []);
+    return rawList.map((o: any): DivergentOrder => ({
+      id: String(o.id || ''),
+      clientOrderId: String(o.clientOrderId || o.client_order_id || ''),
+      userId: String(o.userId || o.user_id || ''),
+      botId: o.botId || o.bot_id ? String(o.botId || o.bot_id) : undefined,
+      symbol: String(o.symbol || ''),
+      exchange: o.exchange ? String(o.exchange) : undefined,
+      side: (o.side || 'BUY') as DivergentOrder['side'],
+      orderType: (o.orderType || o.order_type || 'LIMIT') as DivergentOrder['orderType'],
+      price: String(o.price || '0'),
+      quantity: String(o.quantity || '0'),
+      localStatus: (o.localStatus || o.local_status || 'IN_FLIGHT_UNKNOWN') as DivergentOrder['localStatus'],
+      exchangeStatus: (o.exchangeStatus || o.exchange_status || 'NEW') as DivergentOrder['exchangeStatus'],
+      discrepancyType: (o.discrepancyType || o.discrepancy_type || 'STATE_MISMATCH') as DivergentOrder['discrepancyType'],
+      lastCheckedAt: String(o.lastCheckedAt || o.last_checked_at || new Date().toISOString()),
+      createdAt: String(o.createdAt || o.created_at || new Date().toISOString()),
+      divergenceAgeSeconds: Number.isFinite(Number(o.divergenceAgeSeconds ?? o.divergence_age_seconds)) ? Number(o.divergenceAgeSeconds ?? o.divergence_age_seconds) : 0,
+    }));
   },
 
+  // The three divergence actions have no backend route: they show the real 404 and never simulate
+  // an outcome. [Policy Ref: Fault Tolerance Policy INV-14 - divergence actions are never simulated]
   syncDivergentOrder: async (orderId: string): Promise<{ success: boolean; message: string; updatedStatus: string }> => {
-    try {
-      const res = await adminFetch(`/v1/trading/admin/divergent-orders/${encodeURIComponent(orderId)}/sync`, {
+    return readJsonOrThrow<{ success: boolean; message: string; updatedStatus: string }>(
+      await adminFetch(`/v1/trading/admin/divergent-orders/${encodeURIComponent(orderId)}/sync`, {
         method: 'POST',
-      });
-      if (res.ok) {
-        return await res.json();
-      }
-    } catch {
-      // Fallback
-    }
-
-    let list: DivergentOrder[] = [];
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('vf_admin_divergent_orders');
-      list = saved ? JSON.parse(saved) : [];
-    }
-    const idx = list.findIndex((o) => o.id === orderId);
-    if (idx === -1) {
-      return { success: false, message: 'Order not found', updatedStatus: 'UNKNOWN' };
-    }
-    const target = list[idx];
-    target.localStatus = target.exchangeStatus === 'FILLED' ? 'NEW' : 'REJECTED';
-    target.discrepancyType = 'STATE_MISMATCH';
-    target.lastCheckedAt = new Date().toISOString();
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('vf_admin_divergent_orders', JSON.stringify(list));
-    }
-    return {
-      success: true,
-      message: `Order ${target.clientOrderId} synchronized with exchange execution report: ${target.exchangeStatus}`,
-      updatedStatus: target.exchangeStatus,
-    };
+      })
+    );
   },
 
   forceCancelDivergentOrder: async (orderId: string): Promise<{ success: boolean; message: string }> => {
-    try {
-      const res = await adminFetch(`/v1/trading/admin/divergent-orders/${encodeURIComponent(orderId)}/cancel`, {
+    return readJsonOrThrow<{ success: boolean; message: string }>(
+      await adminFetch(`/v1/trading/admin/divergent-orders/${encodeURIComponent(orderId)}/cancel`, {
         method: 'POST',
-      });
-      if (res.ok) {
-        return await res.json();
-      }
-    } catch {
-      // Fallback
-    }
-
-    let list: DivergentOrder[] = [];
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('vf_admin_divergent_orders');
-      list = saved ? JSON.parse(saved) : [];
-      const filtered = list.filter((o) => o.id !== orderId);
-      localStorage.setItem('vf_admin_divergent_orders', JSON.stringify(filtered));
-    }
-    return {
-      success: true,
-      message: `Emergency cancellation sent to exchange. Resting order cleared.`,
-    };
+      })
+    );
   },
 
   declareAbandonedOrder: async (orderId: string): Promise<{ success: boolean; message: string }> => {
-    try {
-      const res = await adminFetch(`/v1/trading/admin/divergent-orders/${encodeURIComponent(orderId)}/abandon`, {
+    return readJsonOrThrow<{ success: boolean; message: string }>(
+      await adminFetch(`/v1/trading/admin/divergent-orders/${encodeURIComponent(orderId)}/abandon`, {
         method: 'POST',
-      });
-      if (res.ok) {
-        return await res.json();
-      }
-    } catch {
-      // Fallback
-    }
-
-    let list: DivergentOrder[] = [];
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('vf_admin_divergent_orders');
-      list = saved ? JSON.parse(saved) : [];
-      const filtered = list.filter((o) => o.id !== orderId);
-      localStorage.setItem('vf_admin_divergent_orders', JSON.stringify(filtered));
-    }
-    return {
-      success: true,
-      message: `Order declared abandoned. Released risk reservations and marked locally terminal.`,
-    };
+      })
+    );
   },
 
   // Maker-Checker Financial Compensation Governance
+  // [Policy Ref: FLP FL-14, FL-16 - an administrative money action is never reported done without the backend]
   getCompensationClaims: async (status?: string): Promise<CompensationClaim[]> => {
-    try {
-      const url = status ? `/v1/billing/admin/compensations?status=${encodeURIComponent(status)}` : `/v1/billing/admin/compensations`;
-      const res = await adminFetch(url);
-      if (res.ok) {
-        const data = await res.json();
-        const rawClaims = Array.isArray(data.claims) ? data.claims : (Array.isArray(data) ? data : []);
-        return rawClaims.map((c: any): CompensationClaim => ({
-          id: String(c.id || ''),
-          incidentId: String(c.incidentId || c.incident_id || ''),
-          userId: String(c.userId || c.user_id || ''),
-          amountCents: Number.isFinite(Number(c.amountCents ?? c.amount_cents)) ? Number(c.amountCents ?? c.amount_cents) : 0,
-          reason: String(c.reason || ''),
-          evidencePayload: String(c.evidencePayload || c.evidence_payload || '{}'),
-          status: (c.status || 'PENDING_APPROVAL') as CompensationClaim['status'],
-          createdByAdminId: String(c.createdByAdminId || c.created_by_admin_id || ''),
-          approvedByAdminId: c.approvedByAdminId || c.approved_by_admin_id ? String(c.approvedByAdminId || c.approved_by_admin_id) : undefined,
-          rejectionReason: c.rejectionReason || c.rejection_reason ? String(c.rejectionReason || c.rejection_reason) : undefined,
-          createdAt: String(c.createdAt || c.created_at || new Date().toISOString()),
-          updatedAt: String(c.updatedAt || c.updated_at || new Date().toISOString()),
-          approvedAt: c.approvedAt || c.approved_at ? String(c.approvedAt || c.approved_at) : undefined,
-        }));
-      }
-    } catch {
-      // Fallback to local storage for standalone back-office
-    }
-
-    const saved = getStorageItem('vf_admin_compensations');
-    if (saved) {
-      try {
-        const parsed: CompensationClaim[] = JSON.parse(saved);
-        if (status) return parsed.filter((c) => c.status === status);
-        return parsed;
-      } catch { /* ignore corrupted */ }
-    }
-    return [];
+    const url = status ? `/v1/billing/admin/compensations?status=${encodeURIComponent(status)}` : `/v1/billing/admin/compensations`;
+    const data = await readJsonOrThrow<AdminWireBody>(await adminFetch(url));
+    const rawClaims = Array.isArray(data.claims) ? data.claims : (Array.isArray(data) ? data : []);
+    return rawClaims.map((c: any): CompensationClaim => ({
+      id: String(c.id || ''),
+      incidentId: String(c.incidentId || c.incident_id || ''),
+      userId: String(c.userId || c.user_id || ''),
+      amountCents: Number.isFinite(Number(c.amountCents ?? c.amount_cents)) ? Number(c.amountCents ?? c.amount_cents) : 0,
+      reason: String(c.reason || ''),
+      evidencePayload: String(c.evidencePayload || c.evidence_payload || '{}'),
+      status: (c.status || 'PENDING_APPROVAL') as CompensationClaim['status'],
+      createdByAdminId: String(c.createdByAdminId || c.created_by_admin_id || ''),
+      approvedByAdminId: c.approvedByAdminId || c.approved_by_admin_id ? String(c.approvedByAdminId || c.approved_by_admin_id) : undefined,
+      rejectionReason: c.rejectionReason || c.rejection_reason ? String(c.rejectionReason || c.rejection_reason) : undefined,
+      createdAt: String(c.createdAt || c.created_at || new Date().toISOString()),
+      updatedAt: String(c.updatedAt || c.updated_at || new Date().toISOString()),
+      approvedAt: c.approvedAt || c.approved_at ? String(c.approvedAt || c.approved_at) : undefined,
+    }));
   },
 
   createCompensationClaim: async (
     payload: CreateCompensationClaimPayload,
-    adminId: string
+    _adminId: string
   ): Promise<CompensationClaim> => {
-    try {
-      const res = await adminFetch('/v1/billing/admin/compensations', {
+    const data = await readJsonOrThrow<{ claim: CompensationClaim }>(
+      await adminFetch('/v1/billing/admin/compensations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1121,78 +781,22 @@ export const adminApi = {
           reason: payload.reason,
           evidence_payload: payload.evidencePayload,
         }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.claim) return data.claim;
-      }
-    } catch {
-      // Fallback
-    }
-
-    const newClaim: CompensationClaim = {
-      id: `claim-${Date.now()}`,
-      incidentId: payload.incidentId,
-      userId: payload.userId,
-      amountCents: payload.amountCents,
-      reason: payload.reason,
-      evidencePayload: payload.evidencePayload || '{}',
-      status: 'PENDING_APPROVAL',
-      createdByAdminId: adminId,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    const saved = getStorageItem('vf_admin_compensations');
-    const list: CompensationClaim[] = saved ? JSON.parse(saved) : [];
-    list.unshift(newClaim);
-    setStorageItem('vf_admin_compensations', JSON.stringify(list));
-    return newClaim;
+      })
+    );
+    return data.claim;
   },
 
   approveCompensationClaim: async (
     claimId: string,
     checkerAdminId: string
   ): Promise<{ claim: CompensationClaim; newBalanceCents: number; message: string }> => {
-    try {
-      const res = await adminFetch(`/v1/billing/admin/compensations/${encodeURIComponent(claimId)}/approve`, {
+    return readJsonOrThrow<{ claim: CompensationClaim; newBalanceCents: number; message: string }>(
+      await adminFetch(`/v1/billing/admin/compensations/${encodeURIComponent(claimId)}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ checker_admin_id: checkerAdminId }),
-      });
-      if (res.ok) {
-        return await res.json();
-      }
-    } catch {
-      // Fallback
-    }
-
-    const saved = getStorageItem('vf_admin_compensations');
-    const list: CompensationClaim[] = saved ? JSON.parse(saved) : [];
-
-    const claim = list.find((c) => c.id === claimId);
-    if (!claim) {
-      throw new Error('Compensation claim not found');
-    }
-    if (claim.createdByAdminId === checkerAdminId) {
-      throw new Error('Maker-Checker violation: Maker cannot approve their own claim');
-    }
-    if (claim.status !== 'PENDING_APPROVAL') {
-      throw new Error('Compensation claim has already been decided');
-    }
-
-    claim.status = 'APPROVED';
-    claim.approvedByAdminId = checkerAdminId;
-    claim.approvedAt = new Date().toISOString();
-    claim.updatedAt = new Date().toISOString();
-
-    setStorageItem('vf_admin_compensations', JSON.stringify(list));
-
-    return {
-      claim,
-      newBalanceCents: 50000 + claim.amountCents,
-      message: `Claim approved. User ${claim.userId} credited with $${(claim.amountCents / 100).toFixed(2)} USD.`,
-    };
+      })
+    );
   },
 
   rejectCompensationClaim: async (
@@ -1200,128 +804,32 @@ export const adminApi = {
     checkerAdminId: string,
     reason: string
   ): Promise<{ claim: CompensationClaim; message: string }> => {
-    try {
-      const res = await adminFetch(`/v1/billing/admin/compensations/${encodeURIComponent(claimId)}/reject`, {
+    return readJsonOrThrow<{ claim: CompensationClaim; message: string }>(
+      await adminFetch(`/v1/billing/admin/compensations/${encodeURIComponent(claimId)}/reject`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ checker_admin_id: checkerAdminId, reason }),
-      });
-      if (res.ok) {
-        return await res.json();
-      }
-    } catch {
-      // Fallback
-    }
-
-    const saved = getStorageItem('vf_admin_compensations');
-    const list: CompensationClaim[] = saved ? JSON.parse(saved) : [];
-
-    const claim = list.find((c) => c.id === claimId);
-    if (!claim) {
-      throw new Error('Compensation claim not found');
-    }
-    if (claim.createdByAdminId === checkerAdminId) {
-      throw new Error('Maker-Checker violation: Maker cannot reject their own claim');
-    }
-    if (claim.status !== 'PENDING_APPROVAL') {
-      throw new Error('Compensation claim has already been decided');
-    }
-
-    claim.status = 'REJECTED';
-    claim.approvedByAdminId = checkerAdminId;
-    claim.rejectionReason = reason;
-    claim.updatedAt = new Date().toISOString();
-
-    setStorageItem('vf_admin_compensations', JSON.stringify(list));
-
-    return {
-      claim,
-      message: `Claim rejected: ${reason}`,
-    };
+      })
+    );
   },
 
   // Broker & Rebate Governance Methods
   getBrokerConfigs: async (): Promise<BrokerConfigDTO[]> => {
-    try {
-      const res = await adminFetch('/v1/admin/broker-configs?include_inactive=true');
-      if (res.ok) {
-        const data = await res.json();
-        if (data.configs && Array.isArray(data.configs)) {
-          const mapped: BrokerConfigDTO[] = data.configs
-            .map((c: any) => parseBrokerConfigWire(c))
-            .filter((c: BrokerConfigDTO) => c.exchange !== ('EXCHANGE_BITGET' as any));
-
-          // Canonical merge: Ensure all 6 supported venues always exist
-          const merged = INITIAL_BROKER_CONFIGS.map((initCfg) => {
-            const found = mapped.find((m) => m.exchange === initCfg.exchange);
-            return found ? { ...initCfg, ...found } : initCfg;
-          });
-
-          // Append any custom venue not present in baseline (excluding bitget)
-          for (const m of mapped) {
-            if (m.exchange !== ('EXCHANGE_BITGET' as any) && !merged.some((item) => item.exchange === m.exchange)) {
-              merged.push(m);
-            }
-          }
-
-          if (typeof window !== 'undefined' && merged.length > 0) {
-            localStorage.setItem('vf_admin_broker_configs', JSON.stringify(merged));
-          }
-          return merged;
-        }
-      } else {
-        console.warn(`[adminApi.getBrokerConfigs] API returned status ${res.status}`);
-      }
-    } catch (err) {
-      console.warn('[adminApi.getBrokerConfigs] Network error fetching broker configs, falling back:', err);
-    }
-
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('vf_admin_broker_configs');
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed)) {
-            return parsed.filter((c: any) => c.exchange !== 'EXCHANGE_BITGET');
-          }
-        } catch { /* ignore */ }
-      }
-    }
-    return INITIAL_BROKER_CONFIGS;
+    const data = await readJsonOrThrow<AdminWireBody>(await adminFetch('/v1/admin/broker-configs?include_inactive=true'));
+    const rawConfigs: AdminWireBody[] = Array.isArray(data.configs) ? data.configs : [];
+    return rawConfigs
+      .map((c) => parseBrokerConfigWire(c))
+      .filter((c: BrokerConfigDTO) => c.exchange !== ('EXCHANGE_BITGET' as any));
   },
 
   getBrokerConfig: async (exchange: ExchangeKey): Promise<BrokerConfigDTO | null> => {
     let exchangeSlug = exchange.replace(/^EXCHANGE_/, '').toLowerCase();
     if (exchangeSlug === 'binance_spot') exchangeSlug = 'binance';
     if (exchangeSlug === 'gmx_v2') exchangeSlug = 'gmx_v2';
-    try {
-      const res = await adminFetch(`/v1/admin/broker-configs/${encodeURIComponent(exchangeSlug)}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.config) {
-          const result = parseBrokerConfigWire(data.config, exchange);
-          if (typeof window !== 'undefined') {
-            let list = [...INITIAL_BROKER_CONFIGS];
-            const saved = localStorage.getItem('vf_admin_broker_configs');
-            if (saved) {
-              try { list = JSON.parse(saved); } catch { /* ignore */ }
-            }
-            const idx = list.findIndex((item) => item.exchange === result.exchange);
-            if (idx >= 0) list[idx] = result;
-            else list.push(result);
-            localStorage.setItem('vf_admin_broker_configs', JSON.stringify(list));
-          }
-          return result;
-        }
-      } else {
-        console.warn(`[adminApi.getBrokerConfig] API returned status ${res.status} for ${exchangeSlug}`);
-      }
-    } catch (err) {
-      console.warn(`[adminApi.getBrokerConfig] Network error for ${exchangeSlug}, falling back:`, err);
-    }
-
-    const configs = await adminApi.getBrokerConfigs();
-    return configs.find((c) => c.exchange === exchange) || null;
+    const data = await readJsonOrThrow<AdminWireBody>(
+      await adminFetch(`/v1/admin/broker-configs/${encodeURIComponent(exchangeSlug)}`)
+    );
+    return data.config ? parseBrokerConfigWire(data.config, exchange) : null;
   },
 
   updateBrokerConfig: async (req: UpdateBrokerConfigRequest): Promise<BrokerConfigDTO> => {
@@ -1332,8 +840,8 @@ export const adminApi = {
     const targetId = req.id || exchangeSlug;
     const protoAttribution = toProtoAttribution(req.attributionType);
 
-    try {
-      const res = await adminFetch(`/v1/admin/broker-configs/${encodeURIComponent(targetId)}`, {
+    const data = await readJsonOrThrow<AdminWireBody>(
+      await adminFetch(`/v1/admin/broker-configs/${encodeURIComponent(targetId)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1356,82 +864,15 @@ export const adminApi = {
           raw_secrets_plaintext: req.rawSecret || '',
           change_reason: req.notes || 'Updated via Admin Console',
         }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.config) {
-          const result = parseBrokerConfigWire(data.config, req.exchange);
-
-          if (typeof window !== 'undefined') {
-            let list = [...INITIAL_BROKER_CONFIGS];
-            const saved = localStorage.getItem('vf_admin_broker_configs');
-            if (saved) {
-              try { list = JSON.parse(saved); } catch { /* ignore */ }
-            }
-            const idx = list.findIndex((item) => item.exchange === req.exchange);
-            if (idx >= 0) {
-              list[idx] = result;
-            } else {
-              list.push(result);
-            }
-            localStorage.setItem('vf_admin_broker_configs', JSON.stringify(list));
-          }
-
-          return result;
-        }
-      } else {
-        const errText = await res.text().catch(() => '');
-        console.error(`[adminApi.updateBrokerConfig] API returned HTTP ${res.status}:`, errText);
-      }
-    } catch (err) {
-      console.error(`[adminApi.updateBrokerConfig] Network error updating ${targetId}:`, err);
-    }
-
-    // Fallback: local optimistic update
-    const result: BrokerConfigDTO = {
-      id: req.id || `cfg_${exchangeSlug}_local`,
-      exchange: req.exchange,
-      environment: req.environment || 'production',
-      attributionType: req.attributionType,
-      status: req.status,
-      lifecycleStatus: req.lifecycleStatus || (req.status === BROKER_CONFIG_STATUS.ACTIVE ? VENUE_LIFECYCLE_STATUS.ACTIVE : VENUE_LIFECYCLE_STATUS.TERMINATED),
-      sunsetDeadline: req.sunsetDeadline || null,
-      sunsetNotice: req.sunsetNotice || null,
-      maskedIdentifier: req.rawIdentifier.length > 6 ? `${req.rawIdentifier.slice(0, 3)}***${req.rawIdentifier.slice(-3)}` : '***',
-      isKmsSealed: true,
-      rebateRateBps: req.rebateRateBps,
-      rebatePercentage: rebatePct,
-      clientOrderIdPrefix: req.clientOrderIdPrefix,
-      headerKey: req.headerKey,
-      headerValue: req.headerValue,
-      payloadParams: req.payloadParams || req.extraParams || {},
-      payoutAddress: req.payoutAddress,
-      version: (req.expectedVersion || 0) + 1,
-      updatedAt: new Date().toISOString(),
-      updatedBy: 'admin-governance-console',
-      notes: req.notes || '',
-      extraParams: req.payloadParams || req.extraParams || {},
-    };
-
-    if (typeof window !== 'undefined') {
-      let list = [...INITIAL_BROKER_CONFIGS];
-      const saved = localStorage.getItem('vf_admin_broker_configs');
-      if (saved) {
-        try { list = JSON.parse(saved); } catch { /* ignore */ }
-      }
-      const idx = list.findIndex((item) => item.exchange === req.exchange);
-      if (idx >= 0) list[idx] = result;
-      else list.push(result);
-      localStorage.setItem('vf_admin_broker_configs', JSON.stringify(list));
-    }
-
-    return result;
+      })
+    );
+    return parseBrokerConfigWire(data.config, req.exchange);
   },
 
   testBrokerAttribution: async (req: TestBrokerAttributionRequest): Promise<TestBrokerAttributionResponse> => {
     const exchangeSlug = req.exchange.replace(/^EXCHANGE_/, '').toLowerCase();
-    try {
-      const res = await adminFetch('/v1/admin/broker-configs/test-attribution', {
+    const data = await readJsonOrThrow<AdminWireBody>(
+      await adminFetch('/v1/admin/broker-configs/test-attribution', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1442,96 +883,47 @@ export const adminApi = {
           order_type: 'LIMIT',
           execute_sandbox_probe: false,
         }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        return {
-          success: data.is_valid ?? true,
-          attributedOrderId: data.formatted_client_order_id || req.testOrderId,
-          injectedHeaders: data.injected_headers || {},
-          injectedParams: data.injected_payload_fields || {},
-          statusMessage: data.diagnostic_message || 'Attribution verified',
-          attributionLatencyNanos: data.formatting_latency_nanos || 18,
-        };
-      }
-    } catch {
-      // Fallback
-    }
-
-    // High fidelity dry-run simulation matching driver logic
-    const prefix = 'x-VF-';
-    let attributedId = req.testOrderId;
-    const headers: Record<string, string> = {};
-    const params: Record<string, string> = {};
-
-    switch (req.exchange) {
-      case 'EXCHANGE_BINGX':
-        headers['X-SOURCE-KEY'] = 'BX-AI-SKILL';
-        attributedId = `${prefix}${req.testOrderId}`;
-        break;
-      case 'EXCHANGE_BYBIT':
-        attributedId = `${prefix}${req.testOrderId}`;
-        params['referer'] = 'x-VF-';
-        break;
-      case 'EXCHANGE_HYPERLIQUID':
-        params['builder'] = '0xVenomFeeVault...';
-        params['fee'] = '10';
-        break;
-      case 'EXCHANGE_GMX_V2':
-        params['referralCode'] = 'venom';
-        break;
-      default:
-        attributedId = `${prefix}${req.testOrderId}`;
-        break;
-    }
-
+      })
+    );
     return {
-      success: true,
-      attributedOrderId: attributedId,
-      injectedHeaders: headers,
-      injectedParams: params,
-      statusMessage: `Attribution dry-run verified for ${req.exchange} (<1μs hot path compliant)`,
-      attributionLatencyNanos: 18,
+      success: data.is_valid === true,
+      attributedOrderId: data.formatted_client_order_id,
+      injectedHeaders: data.injected_headers,
+      injectedParams: data.injected_payload_fields,
+      statusMessage: data.diagnostic_message,
+      attributionLatencyNanos: data.formatting_latency_nanos,
     };
   },
 
   getPublicExchangeConfigs: async (): Promise<PublicExchangeConfigDTO[]> => {
-    try {
-      const res = await adminFetch('/v1/exchanges/public-config');
-      if (res.ok) {
-        const data = await res.json();
-        if (data.exchanges && typeof data.exchanges === 'object') {
-          return Object.entries(data.exchanges).map(([slug, cfg]: [string, any]) => ({
-            exchange: (slug.toUpperCase().startsWith('EXCHANGE_') ? slug.toUpperCase() : `EXCHANGE_${slug.toUpperCase()}`) as ExchangeKey,
-            name: cfg.name || slug,
-            portalUrl: cfg.portalUrl || cfg.portal_url || '',
-            staticNatIps: data.natEgressIps || cfg.static_nat_ips || ['34.118.24.10', '34.118.24.11'],
-            isBrokerActive: cfg.allowNewBots ?? cfg.is_broker_active ?? true,
-            lifecycleStatus: cfg.lifecycleStatus || cfg.lifecycle_status || 'VENUE_LIFECYCLE_STATUS_ACTIVE',
-            sunsetDeadline: cfg.sunsetDeadline || cfg.sunset_deadline || null,
-            sunsetNotice: cfg.sunsetNotice || cfg.sunset_notice || null,
-            allowNewKeys: cfg.allowNewKeys ?? cfg.allow_new_keys ?? true,
-            allowNewBots: cfg.allowNewBots ?? cfg.allow_new_bots ?? true,
-          }));
-        }
-        if (data.configs) return data.configs;
-      }
-    } catch {
-      // Fallback
+    const data = await readJsonOrThrow<AdminWireBody>(await adminFetch('/v1/exchanges/public-config'));
+    if (data.exchanges && typeof data.exchanges === 'object') {
+      return Object.entries(data.exchanges).map(([slug, cfg]: [string, any]) => ({
+        exchange: (slug.toUpperCase().startsWith('EXCHANGE_') ? slug.toUpperCase() : `EXCHANGE_${slug.toUpperCase()}`) as ExchangeKey,
+        name: cfg.name || slug,
+        portalUrl: cfg.portalUrl || cfg.portal_url || '',
+        staticNatIps: data.natEgressIps || cfg.static_nat_ips || ['34.118.24.10', '34.118.24.11'],
+        isBrokerActive: cfg.allowNewBots ?? cfg.is_broker_active ?? true,
+        lifecycleStatus: cfg.lifecycleStatus || cfg.lifecycle_status || 'VENUE_LIFECYCLE_STATUS_ACTIVE',
+        sunsetDeadline: cfg.sunsetDeadline || cfg.sunset_deadline || null,
+        sunsetNotice: cfg.sunsetNotice || cfg.sunset_notice || null,
+        allowNewKeys: cfg.allowNewKeys ?? cfg.allow_new_keys ?? true,
+        allowNewBots: cfg.allowNewBots ?? cfg.allow_new_bots ?? true,
+      }));
     }
-
-    return INITIAL_PUBLIC_EXCHANGE_CONFIGS;
+    return data.configs ?? [];
   },
 
   // Maker-Checker Venue Decommissioning Governance (4-Eyes Dual Approval)
+  // [Policy Ref: ADR-0045 - 4-Stage Venue Lifecycle Transition; FLP FL-16 - two-person administrative actions]
   proposeVenueDecommission: async (
     exchange: ExchangeKey,
     makerAdminId: string,
     reason: string
   ): Promise<BrokerConfigDTO> => {
     const exchangeSlug = exchange.replace(/^EXCHANGE_/, '').toLowerCase();
-    try {
-      const res = await adminFetch(`/v1/admin/broker-configs/${encodeURIComponent(exchangeSlug)}/decommission/propose`, {
+    const data = await readJsonOrThrow<AdminWireBody>(
+      await adminFetch(`/v1/admin/broker-configs/${encodeURIComponent(exchangeSlug)}/decommission/propose`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1539,36 +931,9 @@ export const adminApi = {
           maker_admin_id: makerAdminId,
           reason,
         }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.config) return parseBrokerConfigWire(data.config, exchange);
-      }
-    } catch {
-      // Fallback
-    }
-
-    const configs = await adminApi.getBrokerConfigs();
-    const target = configs.find((c) => c.exchange === exchange);
-    if (!target) {
-      throw new Error(`Venue configuration for ${exchange} not found`);
-    }
-
-    target.lifecycleStatus = VENUE_LIFECYCLE_STATUS.SUNSETTING;
-    target.decommissionProposal = {
-      proposedBy: makerAdminId,
-      proposedAt: new Date().toISOString(),
-      reason,
-      status: 'PENDING_APPROVAL',
-    };
-    target.updatedAt = new Date().toISOString();
-    target.updatedBy = makerAdminId;
-    target.notes = `Decommission proposal initiated by Maker (${makerAdminId}): ${reason}. Pending independent Checker review.`;
-
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('vf_admin_broker_configs', JSON.stringify(configs));
-    }
-    return target;
+      })
+    );
+    return parseBrokerConfigWire(data.config, exchange);
   },
 
   approveVenueDecommission: async (
@@ -1576,48 +941,17 @@ export const adminApi = {
     checkerAdminId: string
   ): Promise<BrokerConfigDTO> => {
     const exchangeSlug = exchange.replace(/^EXCHANGE_/, '').toLowerCase();
-    try {
-      const res = await adminFetch(`/v1/admin/broker-configs/${encodeURIComponent(exchangeSlug)}/decommission/approve`, {
+    const data = await readJsonOrThrow<AdminWireBody>(
+      await adminFetch(`/v1/admin/broker-configs/${encodeURIComponent(exchangeSlug)}/decommission/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           exchange: exchangeSlug,
           checker_admin_id: checkerAdminId,
         }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.config) return parseBrokerConfigWire(data.config, exchange);
-      }
-    } catch {
-      // Fallback
-    }
-
-    const configs = await adminApi.getBrokerConfigs();
-    const target = configs.find((c) => c.exchange === exchange);
-    if (!target) {
-      throw new Error(`Venue configuration for ${exchange} not found`);
-    }
-    if (!target.decommissionProposal || target.decommissionProposal.status !== 'PENDING_APPROVAL') {
-      throw new Error('No pending decommissioning proposal found for this venue');
-    }
-    if (target.decommissionProposal.proposedBy === checkerAdminId) {
-      throw new Error('Maker-Checker violation: Maker cannot approve their own venue decommissioning proposal. Independent Checker required.');
-    }
-
-    target.lifecycleStatus = VENUE_LIFECYCLE_STATUS.TERMINATED;
-    target.status = BROKER_CONFIG_STATUS.INACTIVE;
-    target.decommissionProposal.status = 'APPROVED';
-    target.decommissionProposal.approvedBy = checkerAdminId;
-    target.decommissionProposal.approvedAt = new Date().toISOString();
-    target.updatedAt = new Date().toISOString();
-    target.updatedBy = checkerAdminId;
-    target.sunsetNotice = 'Venue decommissioned by dual-approval governance. Automated graceful soft-stop enforced.';
-
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('vf_admin_broker_configs', JSON.stringify(configs));
-    }
-    return target;
+      })
+    );
+    return parseBrokerConfigWire(data.config, exchange);
   },
 
   rejectVenueDecommission: async (
@@ -1626,8 +960,8 @@ export const adminApi = {
     rejectionReason: string
   ): Promise<BrokerConfigDTO> => {
     const exchangeSlug = exchange.replace(/^EXCHANGE_/, '').toLowerCase();
-    try {
-      const res = await adminFetch(`/v1/admin/broker-configs/${encodeURIComponent(exchangeSlug)}/decommission/reject`, {
+    const data = await readJsonOrThrow<AdminWireBody>(
+      await adminFetch(`/v1/admin/broker-configs/${encodeURIComponent(exchangeSlug)}/decommission/reject`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1635,172 +969,8 @@ export const adminApi = {
           checker_admin_id: checkerAdminId,
           reason: rejectionReason,
         }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.config) return parseBrokerConfigWire(data.config, exchange);
-      }
-    } catch {
-      // Fallback
-    }
-
-    const configs = await adminApi.getBrokerConfigs();
-    const target = configs.find((c) => c.exchange === exchange);
-    if (!target) {
-      throw new Error(`Venue configuration for ${exchange} not found`);
-    }
-    if (!target.decommissionProposal || target.decommissionProposal.status !== 'PENDING_APPROVAL') {
-      throw new Error('No pending decommissioning proposal found for this venue');
-    }
-    if (target.decommissionProposal.proposedBy === checkerAdminId) {
-      throw new Error('Maker-Checker violation: Maker cannot reject their own venue decommissioning proposal. Independent Checker required.');
-    }
-
-    target.lifecycleStatus = VENUE_LIFECYCLE_STATUS.ACTIVE;
-    target.status = BROKER_CONFIG_STATUS.ACTIVE;
-    target.decommissionProposal.status = 'REJECTED';
-    target.decommissionProposal.approvedBy = checkerAdminId;
-    target.decommissionProposal.rejectionReason = rejectionReason;
-    target.updatedAt = new Date().toISOString();
-    target.updatedBy = checkerAdminId;
-
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('vf_admin_broker_configs', JSON.stringify(configs));
-    }
-    return target;
+      })
+    );
+    return parseBrokerConfigWire(data.config, exchange);
   },
 };
-
-// Purged static mock datasets in compliance with Zero Mock Data standard
-export const INITIAL_DIVERGENT_ORDERS: readonly DivergentOrder[] = [];
-export const INITIAL_COMPENSATIONS: readonly CompensationClaim[] = [];
-
-export let INITIAL_BROKER_CONFIGS: BrokerConfigDTO[] = [
-  {
-    exchange: 'EXCHANGE_BINANCE_SPOT',
-    attributionType: 'ATTRIBUTION_TYPE_CLIENT_ORDER_ID_PREFIX',
-    status: 'BROKER_CONFIG_STATUS_ACTIVE',
-    lifecycleStatus: 'VENUE_LIFECYCLE_STATUS_ACTIVE',
-    maskedIdentifier: 'x-V***-',
-    isKmsSealed: true,
-    rebateRateBps: 3000,
-    version: 1,
-    updatedAt: new Date(Date.now() - 86400_000).toISOString(),
-    updatedBy: 'system-bootstrap',
-    notes: 'Binance Link Broker program (Spot & Margin)',
-  },
-  {
-    exchange: 'EXCHANGE_BINANCE_FUTURES',
-    attributionType: 'ATTRIBUTION_TYPE_CLIENT_ORDER_ID_PREFIX',
-    status: 'BROKER_CONFIG_STATUS_ACTIVE',
-    lifecycleStatus: 'VENUE_LIFECYCLE_STATUS_ACTIVE',
-    maskedIdentifier: 'x-V***-',
-    isKmsSealed: true,
-    rebateRateBps: 3000,
-    version: 1,
-    updatedAt: new Date(Date.now() - 86400_000).toISOString(),
-    updatedBy: 'system-bootstrap',
-    notes: 'Binance Link Broker program (USDT-M Futures)',
-  },
-  {
-    exchange: 'EXCHANGE_BYBIT',
-    attributionType: 'ATTRIBUTION_TYPE_CLIENT_ORDER_ID_PREFIX',
-    status: 'BROKER_CONFIG_STATUS_ACTIVE',
-    lifecycleStatus: 'VENUE_LIFECYCLE_STATUS_ACTIVE',
-    maskedIdentifier: 'x-V***-',
-    isKmsSealed: true,
-    rebateRateBps: 3500,
-    version: 1,
-    updatedAt: new Date(Date.now() - 86400_000).toISOString(),
-    updatedBy: 'system-bootstrap',
-    notes: 'Bybit Broker Partner API & orderLinkId routing',
-  },
-  {
-    exchange: 'EXCHANGE_BINGX',
-    attributionType: 'ATTRIBUTION_TYPE_HTTP_HEADER',
-    status: 'BROKER_CONFIG_STATUS_ACTIVE',
-    lifecycleStatus: 'VENUE_LIFECYCLE_STATUS_ACTIVE',
-    maskedIdentifier: 'BX-***-ILL',
-    isKmsSealed: true,
-    rebateRateBps: 4500,
-    version: 1,
-    updatedAt: new Date(Date.now() - 86400_000).toISOString(),
-    updatedBy: 'system-bootstrap',
-    notes: 'BingX Broker Program with X-SOURCE-KEY header attribution',
-    extraParams: { client_order_id_prefix: 'x-VF-' },
-  },
-  {
-    exchange: 'EXCHANGE_HYPERLIQUID',
-    attributionType: 'ATTRIBUTION_TYPE_BUILDER_TAG',
-    status: 'BROKER_CONFIG_STATUS_ACTIVE',
-    lifecycleStatus: 'VENUE_LIFECYCLE_STATUS_ACTIVE',
-    maskedIdentifier: '0x7***2245',
-    isKmsSealed: true,
-    rebateRateBps: 10,
-    version: 1,
-    updatedAt: new Date(Date.now() - 86400_000).toISOString(),
-    updatedBy: 'system-bootstrap',
-    notes: 'Hyperliquid L1 Builder Fee (Non-custodial on-chain rebate)',
-  },
-  {
-    exchange: 'EXCHANGE_GMX_V2',
-    attributionType: 'ATTRIBUTION_TYPE_PAYLOAD_FIELD',
-    status: 'BROKER_CONFIG_STATUS_ACTIVE',
-    lifecycleStatus: 'VENUE_LIFECYCLE_STATUS_ACTIVE',
-    maskedIdentifier: 'ven***',
-    isKmsSealed: true,
-    rebateRateBps: 1000,
-    version: 1,
-    updatedAt: new Date(Date.now() - 86400_000).toISOString(),
-    updatedBy: 'system-bootstrap',
-    notes: 'GMX v2 On-chain Referral Code binding',
-  },
-];
-
-export let INITIAL_PUBLIC_EXCHANGE_CONFIGS: PublicExchangeConfigDTO[] = [
-  {
-    exchange: 'EXCHANGE_BINANCE_SPOT',
-    name: 'Binance (Spot & Margin)',
-    portalUrl: 'https://www.binance.com/en/my/settings/api-management',
-    staticNatIps: ['34.118.24.10', '34.118.24.11'],
-    isBrokerActive: true,
-  },
-  {
-    exchange: 'EXCHANGE_BINANCE_FUTURES',
-    name: 'Binance (USDT-M Futures)',
-    portalUrl: 'https://www.binance.com/en/my/settings/api-management',
-    staticNatIps: ['34.118.24.10', '34.118.24.11'],
-    isBrokerActive: true,
-  },
-  {
-    exchange: 'EXCHANGE_BYBIT',
-    name: 'Bybit (V5 Unified)',
-    portalUrl: 'https://www.bybit.com/app/user/api-management',
-    staticNatIps: ['34.118.24.10', '34.118.24.11'],
-    isBrokerActive: true,
-  },
-  {
-    exchange: 'EXCHANGE_BINGX',
-    name: 'BingX (Swap V2 & Spot)',
-    portalUrl: 'https://bingx.com/en-us/account/api/',
-    staticNatIps: ['34.118.24.10', '34.118.24.11'],
-    isBrokerActive: true,
-  },
-  {
-    exchange: 'EXCHANGE_HYPERLIQUID',
-    name: 'Hyperliquid L1',
-    portalUrl: 'https://app.hyperliquid.xyz/API',
-    staticNatIps: ['34.118.24.10', '34.118.24.11'],
-    isBrokerActive: true,
-  },
-  {
-    exchange: 'EXCHANGE_GMX_V2',
-    name: 'GMX v2 (Arbitrum)',
-    portalUrl: 'https://app.gmx.io/#/referrals',
-    staticNatIps: ['34.118.24.10', '34.118.24.11'],
-    isBrokerActive: true,
-  },
-];
-
-
-
