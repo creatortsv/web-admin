@@ -203,7 +203,6 @@ export interface BrokerConfigDTO {
   version: number;
   updatedAt: string;
   updatedBy: string;
-  notes: string;
   extraParams?: Record<string, string>;
   decommissionProposal?: DecommissionProposal | null;
 }
@@ -303,118 +302,64 @@ export function toProtoAttribution(at: AttributionType): AttributionTypeContract
   }
 }
 
-export function fromProtoAttribution(raw: string | number, ex?: ExchangeKey): AttributionTypeContract {
-  if (typeof raw === 'number') {
-    switch (raw) {
-      case 1: return ATTRIBUTION_TYPE.CLIENT_ORDER_ID_PREFIX;
-      case 2: return ATTRIBUTION_TYPE.HTTP_HEADER;
-      case 3: return ATTRIBUTION_TYPE.PAYLOAD_FIELD;
-      case 4: return ATTRIBUTION_TYPE.BUILDER_TAG;
-      case 5: return ATTRIBUTION_TYPE.HYBRID;
-      default: break;
-    }
-  }
-  const str = String(raw || '').toUpperCase();
-  if (str.includes('BUILDER')) return ATTRIBUTION_TYPE.BUILDER_TAG;
-  if (str.includes('HEADER')) return ATTRIBUTION_TYPE.HTTP_HEADER;
-  if (str.includes('PAYLOAD') || str.includes('REFERRAL')) return ATTRIBUTION_TYPE.PAYLOAD_FIELD;
-  if (str.includes('PREFIX')) return ATTRIBUTION_TYPE.CLIENT_ORDER_ID_PREFIX;
+const DECOMMISSION_PROPOSAL_STATUSES: readonly DecommissionProposal['status'][] = [
+  'PENDING_APPROVAL',
+  'APPROVED',
+  'REJECTED',
+];
 
-  if (ex === 'EXCHANGE_HYPERLIQUID') return ATTRIBUTION_TYPE.BUILDER_TAG;
-  if (ex === 'EXCHANGE_BINGX') return ATTRIBUTION_TYPE.HTTP_HEADER;
-  if (ex === 'EXCHANGE_GMX_V2') return ATTRIBUTION_TYPE.PAYLOAD_FIELD;
-  return ATTRIBUTION_TYPE.CLIENT_ORDER_ID_PREFIX;
+function parseDecommissionProposal(wire: WireObject): DecommissionProposal {
+  return {
+    proposedBy: wire.string('proposedBy', 'proposed_by'),
+    proposedAt: wire.string('proposedAt', 'proposed_at'),
+    reason: wire.string('reason'),
+    status: wire.oneOf(DECOMMISSION_PROPOSAL_STATUSES, 'status'),
+    approvedBy: wire.optionalString('approvedBy', 'approved_by'),
+    approvedAt: wire.optionalString('approvedAt', 'approved_at'),
+    rejectionReason: wire.optionalString('rejectionReason', 'rejection_reason'),
+  };
 }
 
 /**
- * Universal Protobuf Wire DTO parser complying with lowerCamelCase wire JSON standards
+ * Universal Protobuf Wire DTO parser complying with lowerCamelCase wire JSON standards.
+ *
+ * grpc-gateway writes every field of `venom.broker_config.v1.BrokerConfig` (the gateway keeps the
+ * default marshaler, which emits unpopulated fields), so a missing or mistyped field is a contract
+ * violation and rejects with `AdminContractError`. Nothing is invented: not the exchange of the
+ * request, not `maskedIdentifier`, `updatedBy`, `environment`, `version`, `updatedAt` and not the
+ * security claim `isKmsSealed`, which is the backend's `hasEncryptedSecrets`.
  * [Policy Ref: Clean Architecture & Zero Magic Strings §4.5]
+ * [Policy Ref: Contract §2.1 - no fake data; Security §4.6 - no false security claim]
  */
-export function parseBrokerConfigWire(c: any, fallbackExchange?: ExchangeKey): BrokerConfigDTO {
-  const rawExchange = c.exchange || fallbackExchange || '';
-  const ex = normalizeExchangeKey(rawExchange);
-
-  // Read lowerCamelCase wire JSON standard (with fallback to snake_case)
-  const isActive = c.isActive !== undefined ? Boolean(c.isActive) : Boolean(c.is_active);
-
-  let rawLifecycle = c.lifecycleStatus || c.lifecycle_status || '';
-  if (!rawLifecycle) {
-    rawLifecycle = isActive ? VENUE_LIFECYCLE_STATUS.ACTIVE : VENUE_LIFECYCLE_STATUS.TERMINATED;
-  } else if (!rawLifecycle.startsWith('VENUE_LIFECYCLE_STATUS_')) {
-    rawLifecycle = `VENUE_LIFECYCLE_STATUS_${rawLifecycle}`;
-  }
-
-  const rebatePct = Number(c.rebatePercentage !== undefined ? c.rebatePercentage : (c.rebate_percentage || 0));
-  const rawSunsetDeadline = c.sunsetDeadline !== undefined ? c.sunsetDeadline : c.sunset_deadline;
-  let sunsetDeadlineStr: string | null = null;
-  if (rawSunsetDeadline) {
-    if (typeof rawSunsetDeadline === 'string') {
-      sunsetDeadlineStr = rawSunsetDeadline;
-    } else if (rawSunsetDeadline.seconds !== undefined) {
-      sunsetDeadlineStr = new Date(Number(rawSunsetDeadline.seconds) * 1000).toISOString();
-    }
-  }
-
-  const sunsetNotice = (c.sunsetNotice !== undefined ? c.sunsetNotice : c.sunset_notice) || null;
-  const maskedIdentifier = (c.maskedIdentifier !== undefined ? c.maskedIdentifier : c.masked_identifier) || '***';
-  const isKmsSealed = c.hasEncryptedSecrets !== undefined ? Boolean(c.hasEncryptedSecrets) : (c.has_encrypted_secrets !== undefined ? Boolean(c.has_encrypted_secrets) : true);
-  const clientOrderIdPrefix = (c.clientOrderIdPrefix !== undefined ? c.clientOrderIdPrefix : c.client_order_id_prefix) || '';
-  const headerKey = (c.headerKey !== undefined ? c.headerKey : c.header_key) || '';
-  const headerValue = (c.headerValue !== undefined ? c.headerValue : c.header_value) || '';
-  const payloadParams = (c.payloadParams !== undefined ? c.payloadParams : c.payload_params) || {};
-  const payoutAddress = (c.payoutAddress !== undefined ? c.payoutAddress : c.payout_address) || '';
-  const version = Number(c.version !== undefined ? c.version : 1);
-  const rawUpdatedAt = c.updatedAt !== undefined ? c.updatedAt : c.updated_at;
-  let updatedAtStr = new Date().toISOString();
-  if (rawUpdatedAt) {
-    if (typeof rawUpdatedAt === 'string') {
-      updatedAtStr = rawUpdatedAt;
-    } else if (rawUpdatedAt.seconds !== undefined) {
-      updatedAtStr = new Date(Number(rawUpdatedAt.seconds) * 1000).toISOString();
-    }
-  }
-  const updatedBy = (c.updatedBy !== undefined ? c.updatedBy : c.updated_by) || 'system';
-  const notes = c.notes || '';
-  const rawAttribution = c.attributionType !== undefined ? c.attributionType : c.attribution_type;
-
-  let decommissionProposal: DecommissionProposal | undefined = undefined;
-  const rawProposal = c.decommissionProposal || c.decommission_proposal;
-  if (rawProposal && typeof rawProposal === 'object') {
-    decommissionProposal = {
-      proposedBy: String(rawProposal.proposedBy || rawProposal.proposed_by || ''),
-      proposedAt: String(rawProposal.proposedAt || rawProposal.proposed_at || new Date().toISOString()),
-      reason: String(rawProposal.reason || ''),
-      status: (rawProposal.status || 'PENDING_APPROVAL') as DecommissionProposal['status'],
-      approvedBy: rawProposal.approvedBy || rawProposal.approved_by ? String(rawProposal.approvedBy || rawProposal.approved_by) : undefined,
-      approvedAt: rawProposal.approvedAt || rawProposal.approved_at ? String(rawProposal.approvedAt || rawProposal.approved_at) : undefined,
-      rejectionReason: rawProposal.rejectionReason || rawProposal.rejection_reason ? String(rawProposal.rejectionReason || rawProposal.rejection_reason) : undefined,
-    };
-  }
+export function parseBrokerConfigWire(wire: WireObject): BrokerConfigDTO {
+  const isActive = wire.boolean('isActive', 'is_active');
+  const rebatePercentage = wire.number('rebatePercentage', 'rebate_percentage');
+  const payloadParams = wire.optionalStringMap('payloadParams', 'payload_params');
+  const proposal = wire.optionalObject('decommissionProposal') ?? wire.optionalObject('decommission_proposal');
 
   return {
-    id: c.id,
-    exchange: ex,
-    environment: c.environment || 'production',
-    attributionType: fromProtoAttribution(rawAttribution, ex),
+    id: wire.optionalString('id'),
+    exchange: normalizeExchangeKey(wire.nonEmptyString('exchange')),
+    environment: wire.string('environment'),
+    attributionType: wire.oneOf(Object.values(ATTRIBUTION_TYPE), 'attributionType', 'attribution_type'),
     status: isActive ? BROKER_CONFIG_STATUS.ACTIVE : BROKER_CONFIG_STATUS.INACTIVE,
-    lifecycleStatus: rawLifecycle as VenueLifecycleStatus,
-    sunsetDeadline: sunsetDeadlineStr,
-    sunsetNotice,
-    maskedIdentifier,
-    isKmsSealed,
-    rebateRateBps: Math.round(rebatePct * 100),
-    rebatePercentage: rebatePct,
-    clientOrderIdPrefix,
-    headerKey,
-    headerValue,
+    lifecycleStatus: wire.oneOf(Object.values(VENUE_LIFECYCLE_STATUS), 'lifecycleStatus', 'lifecycle_status'),
+    sunsetDeadline: wire.optionalString('sunsetDeadline', 'sunset_deadline') ?? null,
+    sunsetNotice: wire.optionalString('sunsetNotice', 'sunset_notice') ?? null,
+    maskedIdentifier: wire.string('maskedIdentifier', 'masked_identifier'),
+    isKmsSealed: wire.boolean('hasEncryptedSecrets', 'has_encrypted_secrets'),
+    rebateRateBps: Math.round(rebatePercentage * 100),
+    rebatePercentage,
+    clientOrderIdPrefix: wire.optionalString('clientOrderIdPrefix', 'client_order_id_prefix'),
+    headerKey: wire.optionalString('headerKey', 'header_key'),
+    headerValue: wire.optionalString('headerValue', 'header_value'),
     payloadParams,
-    payoutAddress,
-    version,
-    updatedAt: updatedAtStr,
-    updatedBy,
-    notes,
+    payoutAddress: wire.optionalString('payoutAddress', 'payout_address'),
+    version: wire.number('version'),
+    updatedAt: wire.string('updatedAt', 'updated_at'),
+    updatedBy: wire.string('updatedBy', 'updated_by'),
     extraParams: payloadParams,
-    decommissionProposal,
+    decommissionProposal: proposal === undefined ? undefined : parseDecommissionProposal(proposal),
   };
 }
 
@@ -862,19 +807,19 @@ export const adminApi = {
 
   // Broker & Rebate Governance Methods
   getBrokerConfigs: async (): Promise<BrokerConfigDTO[]> => {
-    const data = await readJsonOrThrow<AdminWireBody>(await adminFetch('/v1/admin/broker-configs?include_inactive=true'));
-    const rawConfigs: unknown[] = Array.isArray(data.configs) ? data.configs : [];
-    return rawConfigs.map((c) => parseBrokerConfigWire(c));
+    const body = await readJsonOrThrow<unknown>(await adminFetch('/v1/admin/broker-configs?include_inactive=true'));
+    return WireObject.items(body, 'configs').map(parseBrokerConfigWire);
   },
 
   getBrokerConfig: async (exchange: ExchangeKey): Promise<BrokerConfigDTO | null> => {
     let exchangeSlug = exchange.replace(/^EXCHANGE_/, '').toLowerCase();
     if (exchangeSlug === 'binance_spot') exchangeSlug = 'binance';
     if (exchangeSlug === 'gmx_v2') exchangeSlug = 'gmx_v2';
-    const data = await readJsonOrThrow<AdminWireBody>(
-      await adminFetch(`/v1/admin/broker-configs/${encodeURIComponent(exchangeSlug)}`)
+    const root = WireObject.from(
+      await readJsonOrThrow<unknown>(await adminFetch(`/v1/admin/broker-configs/${encodeURIComponent(exchangeSlug)}`)),
     );
-    return data.config ? parseBrokerConfigWire(data.config, exchange) : null;
+    // A lookup of a missing config answers 404; a 2xx body without a config carries nothing to show.
+    return root.optionalObject('config') === undefined ? null : parseBrokerConfigWire(root.object('config'));
   },
 
   updateBrokerConfig: async (req: UpdateBrokerConfigRequest): Promise<BrokerConfigDTO> => {
@@ -885,7 +830,8 @@ export const adminApi = {
     const targetId = req.id || exchangeSlug;
     const protoAttribution = toProtoAttribution(req.attributionType);
 
-    const data = await readJsonOrThrow<AdminWireBody>(
+    const changeReason = req.notes?.trim() ? req.notes : undefined;
+    const data = await readJsonOrThrow<unknown>(
       await adminFetch(`/v1/admin/broker-configs/${encodeURIComponent(targetId)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -907,11 +853,14 @@ export const adminApi = {
           sunset_notice: req.sunsetNotice || '',
           expected_version: req.expectedVersion,
           raw_secrets_plaintext: req.rawSecret || '',
-          change_reason: req.notes || 'Updated via Admin Console',
+          // The operator's justification, exactly as typed. The backend marks it mandatory and answers
+          // its own error when it is absent; the console never writes a reason in the operator's name.
+          // [Policy Ref: FLP FL-16 - an administrative action carries the actor's own justification]
+          ...(changeReason === undefined ? {} : { change_reason: changeReason }),
         }),
       })
     );
-    return parseBrokerConfigWire(data.config, req.exchange);
+    return parseBrokerConfigWire(WireObject.from(data).object('config'));
   },
 
   testBrokerAttribution: async (req: TestBrokerAttributionRequest): Promise<TestBrokerAttributionResponse> => {
@@ -967,7 +916,7 @@ export const adminApi = {
     reason: string
   ): Promise<BrokerConfigDTO> => {
     const exchangeSlug = exchange.replace(/^EXCHANGE_/, '').toLowerCase();
-    const data = await readJsonOrThrow<AdminWireBody>(
+    const data = await readJsonOrThrow<unknown>(
       await adminFetch(`/v1/admin/broker-configs/${encodeURIComponent(exchangeSlug)}/decommission/propose`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -978,7 +927,7 @@ export const adminApi = {
         }),
       })
     );
-    return parseBrokerConfigWire(data.config, exchange);
+    return parseBrokerConfigWire(WireObject.from(data).object('config'));
   },
 
   approveVenueDecommission: async (
@@ -986,7 +935,7 @@ export const adminApi = {
     checkerAdminId: string
   ): Promise<BrokerConfigDTO> => {
     const exchangeSlug = exchange.replace(/^EXCHANGE_/, '').toLowerCase();
-    const data = await readJsonOrThrow<AdminWireBody>(
+    const data = await readJsonOrThrow<unknown>(
       await adminFetch(`/v1/admin/broker-configs/${encodeURIComponent(exchangeSlug)}/decommission/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -996,7 +945,7 @@ export const adminApi = {
         }),
       })
     );
-    return parseBrokerConfigWire(data.config, exchange);
+    return parseBrokerConfigWire(WireObject.from(data).object('config'));
   },
 
   rejectVenueDecommission: async (
@@ -1005,7 +954,7 @@ export const adminApi = {
     rejectionReason: string
   ): Promise<BrokerConfigDTO> => {
     const exchangeSlug = exchange.replace(/^EXCHANGE_/, '').toLowerCase();
-    const data = await readJsonOrThrow<AdminWireBody>(
+    const data = await readJsonOrThrow<unknown>(
       await adminFetch(`/v1/admin/broker-configs/${encodeURIComponent(exchangeSlug)}/decommission/reject`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1016,6 +965,6 @@ export const adminApi = {
         }),
       })
     );
-    return parseBrokerConfigWire(data.config, exchange);
+    return parseBrokerConfigWire(WireObject.from(data).object('config'));
   },
 };

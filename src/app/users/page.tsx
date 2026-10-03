@@ -8,9 +8,17 @@ import {
   Alert,
   AlertDescription,
   AlertTitle,
+  Button,
   InstitutionalEmptyState,
   Skeleton,
 } from '@creatortsv/pkg-ui';
+
+/**
+ * No `adminApi` operation changes a user's status or role, so the moderation actions are shown as
+ * unavailable. The console never changes a rendered user or reports an action it did not send.
+ * [Policy Ref: Contract §2.1 - no fake success; FLP FL-16 - an administrative action is never reported done without the backend]
+ */
+const USER_MODERATION_UNAVAILABLE = 'User moderation is not available in the admin console: the admin API has no operation to change a user status or role.' as const;
 
 export default function UsersPage() {
   // null while the backend has not answered yet (loading state)
@@ -24,20 +32,6 @@ export default function UsersPage() {
       .then(setUsers)
       .catch((err: unknown) => setError(describeAdminError(err)));
   }, []);
-
-  const handleStatusChange = (userId: string, status: 'ACTIVE' | 'SUSPENDED' | 'BANNED') => {
-    if (confirm(`Change status of user ${userId} to ${status}?`)) {
-      setUsers((prev) =>
-        prev === null ? prev : prev.map((u) => (u.id === userId ? { ...u, status } : u))
-      );
-    }
-  };
-
-  const handleRoleChange = (userId: string, role: 'super_admin' | 'admin' | 'trader' | 'sandbox') => {
-    setUsers((prev) =>
-      prev === null ? prev : prev.map((u) => (u.id === userId ? { ...u, role } : u))
-    );
-  };
 
   const filtered = (users ?? []).filter((u) =>
     u.email.toLowerCase().includes(search.toLowerCase()) || u.id.toLowerCase().includes(search.toLowerCase())
@@ -54,7 +48,7 @@ export default function UsersPage() {
             User Moderation & Access Control
           </h1>
           <p className="text-sm text-slate-300 mt-2 leading-relaxed">
-            Super-Admin controls to suspend suspicious accounts, revoke Redis sessions, and assign platform roles.
+            User accounts, roles and status exactly as the backend reports them.
           </p>
         </div>
 
@@ -130,16 +124,9 @@ export default function UsersPage() {
                     </div>
                   </td>
                   <td className="py-4 px-6">
-                    <select
-                      value={u.role}
-                      onChange={(e) => handleRoleChange(u.id, e.target.value as any)}
-                      className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-rose-500 cursor-pointer font-mono"
-                    >
-                      <option value="super_admin">super_admin</option>
-                      <option value="admin">admin</option>
-                      <option value="trader">trader</option>
-                      <option value="sandbox">sandbox</option>
-                    </select>
+                    <span className="inline-block bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 font-mono">
+                      {u.role}
+                    </span>
                   </td>
                   <td className="py-4 px-6">
                     <span
@@ -158,35 +145,48 @@ export default function UsersPage() {
                   <td className="py-4 px-6 text-slate-200 font-semibold">${u.totalVolumeUsd.toLocaleString('en-US')}</td>
                   <td className="py-4 px-6 text-right space-x-2.5">
                     {u.status === 'ACTIVE' ? (
-                      <button
-                        type="button"
-                        onClick={() => handleStatusChange(u.id, 'SUSPENDED')}
-                        className="px-3.5 py-1.5 rounded-lg bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-500/40 text-xs font-semibold transition-colors cursor-pointer"
-                      >
-                        Suspend
-                      </button>
+                      <span title={USER_MODERATION_UNAVAILABLE} className="inline-block">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled
+                          className="bg-rose-950/40 text-rose-300 border-rose-500/40 text-xs font-semibold disabled:opacity-30"
+                        >
+                          Suspend
+                        </Button>
+                      </span>
                     ) : (
-                      <button
-                        type="button"
-                        onClick={() => handleStatusChange(u.id, 'ACTIVE')}
-                        className="px-3.5 py-1.5 rounded-lg bg-emerald-950/40 hover:bg-emerald-900/60 text-emerald-300 border border-emerald-500/40 text-xs font-semibold transition-colors cursor-pointer"
-                      >
-                        Reactivate
-                      </button>
+                      <span title={USER_MODERATION_UNAVAILABLE} className="inline-block">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled
+                          className="bg-emerald-950/40 text-emerald-300 border-emerald-500/40 text-xs font-semibold disabled:opacity-30"
+                        >
+                          Reactivate
+                        </Button>
+                      </span>
                     )}
-                    <button
-                      type="button"
-                      onClick={() => handleStatusChange(u.id, 'BANNED')}
-                      className="px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700/70 text-xs font-semibold transition-colors cursor-pointer"
-                    >
-                      Ban
-                    </button>
+                    <span title={USER_MODERATION_UNAVAILABLE} className="inline-block">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled
+                        className="bg-slate-900 text-slate-300 border-slate-700/70 text-xs font-semibold disabled:opacity-30"
+                      >
+                        Ban
+                      </Button>
+                    </span>
                   </td>
                 </tr>
               )))}
             </tbody>
           </table>
         </div>
+        <p className="px-6 py-4 border-t border-slate-800/60 text-xs text-slate-400">{USER_MODERATION_UNAVAILABLE}</p>
       </div>
       )}
     </div>

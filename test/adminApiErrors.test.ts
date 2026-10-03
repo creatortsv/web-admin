@@ -16,6 +16,7 @@ import {
 import {
   WireFixture,
   botWire,
+  brokerConfigWire,
   claimWire,
   natEgressIps,
   orderWire,
@@ -166,7 +167,7 @@ describe('adminApi resolves only from the backend response', () => {
       vi.fn(
         async () =>
           new Response(
-            JSON.stringify({ configs: [{ id: 'cfg-1', exchange: 'hyperliquid', isActive: true }] }),
+            JSON.stringify({ configs: [{ ...brokerConfigWire, id: 'cfg-1', exchange: 'hyperliquid', isActive: true }] }),
             { status: 200 },
           ),
       ),
@@ -365,8 +366,8 @@ describe('adminApi returns exactly what the backend sent', () => {
   it('getBrokerConfigs applies no client-side venue filter', async () => {
     stubBackendJson({
       configs: [
-        { id: 'cfg-1', exchange: 'bybit', isActive: true },
-        { id: 'cfg-2', exchange: 'bitget', isActive: true },
+        { ...brokerConfigWire, id: 'cfg-1', exchange: 'bybit', isActive: true },
+        { ...brokerConfigWire, id: 'cfg-2', exchange: 'bitget', isActive: true },
       ],
     });
     const configs = await adminApi.getBrokerConfigs();

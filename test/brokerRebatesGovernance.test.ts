@@ -100,6 +100,9 @@ describe('Broker & Rebate Governance API', () => {
       sunset_notice: 'Venue decommissioned by operator.',
       version: 5,
       rebate_percentage: 0.3,
+      has_encrypted_secrets: true,
+      updated_at: '2026-10-02T10:00:00Z',
+      updated_by: 'admin-1',
     };
 
     global.fetch = vi.fn().mockResolvedValue({
@@ -132,6 +135,12 @@ describe('Broker & Rebate Governance API', () => {
         sunset_notice: 'Decommissioned by operator',
         version: 3,
         rebate_percentage: 0.3,
+        environment: 'production',
+        attribution_type: 'ATTRIBUTION_TYPE_CLIENT_ORDER_ID_PREFIX',
+        masked_identifier: 'x-V***-',
+        has_encrypted_secrets: true,
+        updated_at: '2026-10-02T10:00:00Z',
+        updated_by: 'admin-1',
       },
       {
         id: 'cfg_hyperliquid_1',
@@ -140,6 +149,12 @@ describe('Broker & Rebate Governance API', () => {
         lifecycle_status: 'VENUE_LIFECYCLE_STATUS_ACTIVE',
         version: 1,
         rebate_percentage: 0.1,
+        environment: 'production',
+        attribution_type: 'ATTRIBUTION_TYPE_BUILDER_TAG',
+        masked_identifier: '0x1122***900',
+        has_encrypted_secrets: false,
+        updated_at: '2026-10-02T10:00:00Z',
+        updated_by: 'admin-1',
       },
     ];
 
@@ -179,6 +194,8 @@ describe('Broker & Rebate Governance API', () => {
         version: 2,
         maskedIdentifier: '0x1122***900',
         hasEncryptedSecrets: false,
+        updatedAt: '2026-10-02T10:00:00Z',
+        updatedBy: 'admin-1',
       },
     ];
 

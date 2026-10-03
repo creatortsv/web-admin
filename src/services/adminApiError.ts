@@ -57,6 +57,8 @@ export class AdminContractError extends Error {
 
 export const WIRE_KIND = {
   STRING: 'a string',
+  NON_EMPTY_STRING: 'a non-empty string',
+  ONE_OF_CONTRACT_VALUES: 'one of the contract values',
   NUMBER: 'a finite number',
   BOOLEAN: 'a boolean',
   OBJECT: 'an object',
@@ -129,6 +131,36 @@ export class WireObject {
       throw this.violation(keys, WIRE_KIND.STRING);
     }
     return value;
+  }
+
+  /** A string that the backend must have filled; an empty string is a contract error. */
+  nonEmptyString(...keys: string[]): string {
+    const value = this.present(keys);
+    if (typeof value !== 'string' || value === '') {
+      throw this.violation(keys, WIRE_KIND.NON_EMPTY_STRING);
+    }
+    return value;
+  }
+
+  /** A string that must be one of the contract values (an enum name); any other value is a contract error. */
+  oneOf<T extends string>(allowed: readonly T[], ...keys: string[]): T {
+    const value = this.present(keys);
+    const member = allowed.find((candidate) => candidate === value);
+    if (member === undefined) {
+      throw this.violation(keys, WIRE_KIND.ONE_OF_CONTRACT_VALUES);
+    }
+    return member;
+  }
+
+  /** A nested object that must be present. */
+  object(key: string): WireObject {
+    return WireObject.from(this.present([key]), this.qualify(key));
+  }
+
+  /** `undefined` when the nested object is absent or null; a value that is not an object is a contract error. */
+  optionalObject(key: string): WireObject | undefined {
+    const value = this.present([key]);
+    return value === undefined || value === null ? undefined : WireObject.from(value, this.qualify(key));
   }
 
   /** `undefined` when the field is absent or null; a value of another type is a contract error. */

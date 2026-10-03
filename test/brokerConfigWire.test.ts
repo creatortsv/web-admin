@@ -189,12 +189,17 @@ describe('source level guards', () => {
     expect(anyKeywords.length).toBe(0);
   });
 
-  it('adminApi.ts invents none of the values the old parser defaulted', () => {
+  it('the broker config parser invents none of the values the old parser defaulted', () => {
     const source = readRepositoryFile('src/services/adminApi.ts');
-    expect(source).not.toMatch(/\|\| 'system'/);
-    expect(source).not.toMatch(/\|\| '\*\*\*'/);
-    expect(source).not.toMatch(/\|\| 'production'/);
-    expect(source).not.toMatch(/PENDING_APPROVAL'\) as DecommissionProposal/);
+    const start = source.indexOf('export function parseBrokerConfigWire');
+    expect(start).toBeGreaterThan(-1);
+    const parser = source.slice(start, source.indexOf('/**\n * Generates a W3C traceparent header'));
+    expect(parser).not.toMatch(/\|\| 'system'/);
+    expect(parser).not.toMatch(/\|\| '\*\*\*'/);
+    expect(parser).not.toMatch(/\|\| 'production'/);
+    expect(parser).not.toMatch(/new Date\(/);
+    expect(parser).not.toMatch(/\?\? (true|false|1|0)\b/);
+    expect(source).not.toMatch(/\|\| 'PENDING_APPROVAL'/);
   });
 
   const page = parseRepositoryFile('src/app/settings/broker-rebates/page.tsx');

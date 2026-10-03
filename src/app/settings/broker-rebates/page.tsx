@@ -279,6 +279,13 @@ Venom Finance Management`,
 
 const EGRESS_IPS = ['34.118.24.10', '34.118.24.11'];
 
+/**
+ * The backend marks the change reason of a broker config update mandatory (audit justification), so
+ * the console requires the operator to type it and never writes one in the operator's name.
+ * [Policy Ref: FLP FL-16 - an administrative action carries the actor's own justification]
+ */
+const CHANGE_REASON_REQUIRED = 'A change reason is required: type the audit justification in "Change reason" before applying this change.' as const;
+
 export default function BrokerRebatesPage() {
   const { adminEmail } = useAdminAuthStore();
   const [configs, setConfigs] = React.useState<BrokerConfigDTO[]>([]);
@@ -302,7 +309,7 @@ export default function BrokerRebatesPage() {
   const [actionMessage, setActionMessage] = React.useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [rebateRatePercent, setRebateRatePercent] = React.useState<number>(45);
   const [clientPrefix, setClientPrefix] = React.useState<string>('x-VF-');
-  const [notes, setNotes] = React.useState('');
+  const [changeReason, setChangeReason] = React.useState('');
   const [payoutAddress, setPayoutAddress] = React.useState('');
 
   // Sealing & Ephemeral RAM Memory Scrubbing
@@ -345,7 +352,6 @@ export default function BrokerRebatesPage() {
       setSunsetDeadline(activeConfig.sunsetDeadline ? activeConfig.sunsetDeadline.slice(0, 16) : '');
       setSunsetNotice(activeConfig.sunsetNotice || '');
       setRebateRatePercent(activeConfig.rebateRateBps / 100);
-      setNotes(activeConfig.notes || '');
       setClientPrefix(activeConfig.extraParams?.client_order_id_prefix || 'x-VF-');
       setPayoutAddress(activeConfig.payoutAddress || '');
     } else {
@@ -357,10 +363,11 @@ export default function BrokerRebatesPage() {
       setSunsetDeadline('');
       setSunsetNotice('');
       setRebateRatePercent(meta.key === 'EXCHANGE_HYPERLIQUID' ? 0.1 : 30);
-      setNotes('');
       setClientPrefix('x-VF-');
       setPayoutAddress('');
     }
+    // A reason is typed for one change; it never carries over to the next venue or the next update.
+    setChangeReason('');
     setTestResult(null);
     setSealSuccess(false);
     setMemoryScrubCountdown(null);
@@ -403,6 +410,11 @@ export default function BrokerRebatesPage() {
 
   const handleSealAndCommit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const reason = changeReason.trim();
+    if (reason === '') {
+      setActionMessage({ text: CHANGE_REASON_REQUIRED, type: 'error' });
+      return;
+    }
     if (!rawIdentifier && !activeConfig?.maskedIdentifier && !activeConfig?.payoutAddress) {
       alert('Please provide a partner identifier / key before sealing.');
       return;
@@ -483,7 +495,7 @@ export default function BrokerRebatesPage() {
         payloadParams: extraParams,
         payoutAddress: payoutAddressVal,
         expectedVersion: activeConfig?.version || 0,
-        notes,
+        notes: reason,
         extraParams,
       });
 
@@ -534,6 +546,11 @@ export default function BrokerRebatesPage() {
       setShowTerminatedModal(true);
       return;
     }
+    const reason = changeReason.trim();
+    if (reason === '') {
+      setActionMessage({ text: CHANGE_REASON_REQUIRED, type: 'error' });
+      return;
+    }
     const newStatus: BrokerConfigStatus = BROKER_CONFIG_STATUS.ACTIVE;
 
     let nextDeadline = sunsetDeadline;
@@ -571,7 +588,7 @@ export default function BrokerRebatesPage() {
         sunsetNotice: newLifecycle === VENUE_LIFECYCLE_STATUS.SUNSETTING ? (sunsetNotice || 'Venue entering sunset phase. Migrations advised.') : null,
         rebateRateBps: activeConfig?.rebateRateBps || 3000,
         expectedVersion: activeConfig?.version || 0,
-        notes: activeConfig?.notes || `Lifecycle updated to ${newLifecycle}`,
+        notes: reason,
         payloadParams: extraParams,
         extraParams,
       });
@@ -899,6 +916,24 @@ export default function BrokerRebatesPage() {
               </div>
             </div>
 
+            {/* Change reason: mandatory audit justification of the next update, typed by the operator */}
+            <div className="mt-4">
+              <label
+                htmlFor="broker-change-reason"
+                className="block text-xs font-mono uppercase tracking-wider text-slate-300 mb-1.5"
+              >
+                Change reason (required, recorded in the audit log)
+              </label>
+              <input
+                id="broker-change-reason"
+                type="text"
+                value={changeReason}
+                onChange={(e) => setChangeReason(e.target.value)}
+                placeholder="e.g. Agreement ID, BD reference or incident that justifies this change"
+                className="w-full bg-[#05070D] border border-slate-800 rounded-xl px-4 py-3 text-sm text-white font-mono placeholder:text-slate-600 focus:outline-none focus:border-rose-500 transition-colors"
+              />
+            </div>
+
             {/* Action Feedback Banner */}
             {actionMessage && (
               <div
@@ -1198,20 +1233,6 @@ export default function BrokerRebatesPage() {
                       Higher fees are rejected at the validator consensus level.
                     </p>
                   </div>
-
-                  {/* Vault Notes */}
-                  <div>
-                    <label className="block text-xs font-mono uppercase tracking-wider text-slate-300 mb-1.5">
-                      Cold Storage Vault Identifier / Governance Label
-                    </label>
-                    <input
-                      type="text"
-                      value={notes}
-                      onChange={(e) => setNotes(e.target.value)}
-                      placeholder="e.g. Treasury Multi-Sig 3/5 Arbitrum"
-                      className="w-full bg-[#05070D] border border-slate-800 rounded-xl px-4 py-3 text-sm text-white font-mono placeholder:text-slate-600 focus:outline-none focus:border-rose-500 transition-colors"
-                    />
-                  </div>
                 </div>
               ) : selectedExchange === 'EXCHANGE_GMX_V2' ? (
                 /* GMX v2 Specialized Section */
@@ -1262,7 +1283,7 @@ export default function BrokerRebatesPage() {
                     />
                   </div>
 
-                  {/* Rebate Percentage & Notes */}
+                  {/* Rebate Percentage */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-mono uppercase tracking-wider text-slate-300 mb-1.5">
@@ -1280,18 +1301,6 @@ export default function BrokerRebatesPage() {
                         />
                         <span className="absolute right-4 top-3.5 text-sm font-mono text-slate-400">%</span>
                       </div>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-mono uppercase tracking-wider text-slate-300 mb-1.5">
-                        Affiliate Notes
-                      </label>
-                      <input
-                        type="text"
-                        value={notes}
-                        onChange={(e) => setNotes(e.target.value)}
-                        placeholder="e.g. Tier 2 Partner Link"
-                        className="w-full bg-[#05070D] border border-slate-800 rounded-xl px-4 py-3 text-sm text-white font-mono placeholder:text-slate-600 focus:outline-none focus:border-rose-500 transition-colors"
-                      />
                     </div>
                   </div>
                 </div>
@@ -1397,7 +1406,7 @@ export default function BrokerRebatesPage() {
                     </div>
                   )}
 
-                  {/* Rebate Percentage & Notes */}
+                  {/* Rebate Percentage */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-mono uppercase tracking-wider text-slate-300 mb-1.5">
@@ -1418,19 +1427,6 @@ export default function BrokerRebatesPage() {
                       <p className="text-[11px] text-slate-500 mt-1">
                         Equivalent to {Math.round(rebateRatePercent * 100)} basis points (bps).
                       </p>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-mono uppercase tracking-wider text-slate-300 mb-1.5">
-                        Administrative Notes / BD Reference
-                      </label>
-                      <input
-                        type="text"
-                        value={notes}
-                        onChange={(e) => setNotes(e.target.value)}
-                        placeholder="e.g. Agreement ID, BD rep name, signed date"
-                        className="w-full bg-[#05070D] border border-slate-800 rounded-xl px-4 py-3 text-sm text-white font-mono placeholder:text-slate-600 focus:outline-none focus:border-rose-500 transition-colors"
-                      />
                     </div>
                   </div>
                 </div>

@@ -3,7 +3,6 @@ import ts from 'typescript';
 import {
   attributeNamed,
   callsOfIdentifier,
-  collect,
   hasAsConstString,
   identifiersNamed,
   jsxElementsWithTag,
@@ -112,26 +111,25 @@ describe.each(pages)('$name page reports no action the backend did not confirm',
     }
   });
 
-  it('wraps the controls in the pkg-ui Tooltip carrying the constant', () => {
-    expect(jsxElementsWithTag(sourceFile, 'Tooltip').length).toBeGreaterThan(0);
-    const contents = jsxElementsWithTag(sourceFile, 'TooltipContent');
-    expect(contents.length).toBeGreaterThan(0);
-    for (const content of contents) {
-      const references = collect(content, (node): node is ts.Identifier => ts.isIdentifier(node) && node.text === page.constant);
-      expect(references.length).toBe(1);
+  it('explains each disabled control through a title taken from the constant', () => {
+    const buttons = jsxElementsWithTag(sourceFile, 'Button').filter((button) =>
+      page.controls.includes(textOf(button)),
+    );
+    expect(buttons.length).toBeGreaterThan(0);
+    for (const button of buttons) {
+      const wrapper = button.parent;
+      expect(wrapper !== undefined && ts.isJsxElement(wrapper), `wrapper of "${textOf(button)}"`).toBe(true);
+      const title = attributeNamed(wrapper as ts.JsxElement, 'title');
+      expect(title?.initializer?.getText()).toBe(`{${page.constant}}`);
     }
   });
 });
 
-describe('users page role selector', () => {
+describe('users page role', () => {
   const sourceFile = parseRepositoryFile('src/app/users/page.tsx');
 
-  it('is disabled and has no change handler', () => {
-    const selects = jsxElementsWithTag(sourceFile, 'select');
-    expect(selects.length).toBeGreaterThan(0);
-    for (const select of selects) {
-      expect(attributeNamed(select, 'disabled')).toBeDefined();
-      expect(attributeNamed(select, 'onChange')).toBeUndefined();
-    }
+  it('is shown as read-only text, with no selector that could change it locally', () => {
+    expect(jsxElementsWithTag(sourceFile, 'select').length).toBe(0);
+    expect(jsxElementsWithTag(sourceFile, 'option').length).toBe(0);
   });
 });

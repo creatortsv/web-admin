@@ -112,6 +112,14 @@ export interface AiQuantState {
 
 const STORAGE_KEY = 'venom_ai_quant_settings';
 
+/**
+ * Publication of a synthesized preset to the trader catalog is a backend decision. The admin API
+ * offers no route for it (svc-gateway registers no AiQuantService; `PublishStrategyToCatalog` has no
+ * HTTP binding), so the console reports that it cannot publish and never marks a preset published.
+ * [Policy Ref: Contract §2.1 - no fake success; Standards §6.4 - zero fallback mocking]
+ */
+export const PRESET_PUBLICATION_UNAVAILABLE = 'Publishing a preset to the trader catalog is not available in the admin console: the gateway exposes no preset publication route.' as const;
+
 const DEFAULT_SYSTEM_PROMPT = `You are the Chief Quantitative Architect for Venom Finance.
 Analyze 90-day multi-exchange market volatility, orderbook micro-structure, and Markov regime switches.
 Generate mathematically optimal arithmetic and geometric grid trading parameters tailored to the specified risk constraints:
@@ -158,39 +166,9 @@ export const useAiQuantStore = create<AiQuantState>((set, get) => ({
   progressPercent: 0,
   statusMessage: '',
   executionLogs: [],
-  lastRunAt: initialSaved?.lastRunAt || '2026-08-31 00:00:00 UTC',
-  generatedStrategies: initialSaved?.generatedStrategies || [
-    {
-      id: 'ai_strat_btc_alpha',
-      name: 'BTC Spot Grid Alpha (Bayesian)',
-      pair: 'BTC/USDT',
-      strategyType: 'SPOT_GRID',
-      targetApr: 48.2,
-      maxDrawdown: 6.4,
-      gridCount: 28,
-      spacingType: 'GEOMETRIC',
-      priceRange: { lower: 82400, upper: 98600 },
-      sharpeRatio: 2.84,
-      rationale: 'Calibrated for multi-week consolidation within high-volume POC cluster. Minimal inventory drift.',
-      isPublished: true,
-      createdAt: '2026-08-31 00:00:00 UTC',
-    },
-    {
-      id: 'ai_strat_eth_infinity',
-      name: 'ETH Moon Walker (Infinity)',
-      pair: 'ETH/USDT',
-      strategyType: 'INFINITY_GRID',
-      targetApr: 62.8,
-      maxDrawdown: 7.9,
-      gridCount: 45,
-      spacingType: 'ARITHMETIC',
-      priceRange: { lower: 2550, upper: 4200 },
-      sharpeRatio: 3.12,
-      rationale: 'Infinity trend rider with geometric profit lock at each 1.15% tier. Zero upper ceiling cap.',
-      isPublished: true,
-      createdAt: '2026-08-31 00:00:00 UTC',
-    },
-  ],
+  // Synthesis results come from the backend and live in memory only: nothing is seeded or restored.
+  lastRunAt: null,
+  generatedStrategies: [],
 
   setProvider: (provider) => {
     set({ provider });
@@ -313,14 +291,10 @@ export const useAiQuantStore = create<AiQuantState>((set, get) => ({
               set((s) => ({
                 isRunning: false,
                 progressPercent: 100,
-                statusMessage: 'Synthesis complete. Strategies verified and stored.',
+                statusMessage: 'Synthesis complete. Strategies are held in this session only.',
                 lastRunAt: nowIso,
                 generatedStrategies: [...payload.presets, ...s.generatedStrategies.slice(0, 4)],
               }));
-              persistSettings({
-                lastRunAt: nowIso,
-                generatedStrategies: get().generatedStrategies,
-              });
             }
           } catch {
             // Ignore parse errors on partial chunks
@@ -331,8 +305,8 @@ export const useAiQuantStore = create<AiQuantState>((set, get) => ({
       const message = err instanceof Error ? err.message : String(err);
       set({
         isRunning: false,
-        statusMessage: `Synthesis failed: ${message}. Ensure svc-mcp-quant is running on :8085.`,
-        executionLogs: [...get().executionLogs, `[ERROR] Failed to reach svc-mcp-quant: ${message}`],
+        statusMessage: `Synthesis failed: ${message}`,
+        executionLogs: [...get().executionLogs, `[ERROR] Synthesis failed: ${message}`],
       });
     } finally {
       set({ isRunning: false });
@@ -341,10 +315,8 @@ export const useAiQuantStore = create<AiQuantState>((set, get) => ({
 
   publishToCatalog: (id) => {
     set((s) => ({
-      generatedStrategies: s.generatedStrategies.map((strat) =>
-        strat.id === id ? { ...strat, isPublished: true } : strat
-      ),
+      statusMessage: PRESET_PUBLICATION_UNAVAILABLE,
+      executionLogs: [...s.executionLogs, `[ERROR] ${PRESET_PUBLICATION_UNAVAILABLE} (preset ${id})`],
     }));
-    persistSettings({ generatedStrategies: get().generatedStrategies });
   },
 }));

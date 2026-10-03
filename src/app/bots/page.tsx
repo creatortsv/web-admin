@@ -3,14 +3,22 @@
 import * as React from 'react';
 import { adminApi, FleetBot } from '@/services/adminApi';
 import { describeAdminError } from '@/services/adminApiError';
-import { Bot, AlertOctagon, PauseCircle, PlayCircle, ShieldAlert } from 'lucide-react';
+import { Bot } from 'lucide-react';
 import {
   Alert,
   AlertDescription,
   AlertTitle,
+  Button,
   InstitutionalEmptyState,
   Skeleton,
 } from '@creatortsv/pkg-ui';
+
+/**
+ * No `adminApi` operation stops a bot on the supervisor's behalf, so the commands are shown as
+ * unavailable. The console never changes a bot's status or reports a command it did not send.
+ * [Policy Ref: Contract §2.1 - no fake success; TFT INV-14 - stop and divergence actions are never simulated]
+ */
+const BOT_COMMANDS_UNAVAILABLE = 'Supervisor commands are not available in the admin console: the admin API has no bot stop operation.' as const;
 
 const EXCHANGE_BADGES: Record<string, { bg: string; text: string; border: string; label: string }> = {
   BINANCE: { bg: 'bg-amber-500/10', text: 'text-amber-400', border: 'border-amber-500/30', label: 'Binance' },
@@ -32,22 +40,6 @@ export default function BotsFleetPage() {
       .catch((err: unknown) => setError(describeAdminError(err)));
   }, []);
 
-  const handleAction = (botId: string, action: 'SOFT_STOP' | 'HARD_STOP') => {
-    const isHard = action === 'HARD_STOP';
-    if (confirm(`${isHard ? 'EMERGENCY CANCEL ALL ORDERS' : 'SOFT STOP'}: Apply to bot ${botId}?`)) {
-      setBots((prev) =>
-        prev === null
-          ? prev
-          : prev.map((b) =>
-              b.id === botId
-                ? { ...b, status: isHard ? 'STOPPED' : 'SOFT_STOPPING' }
-                : b
-            )
-      );
-      alert(`Bot ${botId} received command: ${action}`);
-    }
-  };
-
   const filteredBots = (bots ?? []).filter((b) => {
     if (selectedExchange === 'ALL') return true;
     const ex = (b.exchange || 'BINANCE').toUpperCase();
@@ -63,7 +55,7 @@ export default function BotsFleetPage() {
             Bot Fleet Supervisor Cockpit
           </h1>
           <p className="text-xs text-slate-400 mt-1">
-            Cluster-wide bot oversight with goroutine isolation. Execute Soft Stop (wait for grid cycle finish) or Hard Emergency Stop (immediate order cancellation).
+            Cluster-wide bot oversight with goroutine isolation. Bot status is shown exactly as the backend reports it.
           </p>
         </div>
 
@@ -161,28 +153,35 @@ export default function BotsFleetPage() {
                     <td className="py-3.5 px-4 text-slate-300">{b.activeOrders} L2 orders</td>
                     <td className="py-3.5 px-4 text-emerald-400 font-bold">+${b.unrealizedPnlUsd.toFixed(2)}</td>
                     <td className="py-3.5 px-4 text-right space-x-2">
-                      <button
-                        type="button"
-                        onClick={() => handleAction(b.id, 'SOFT_STOP')}
-                        disabled={b.status !== 'RUNNING'}
-                        className="px-2.5 py-1 rounded bg-amber-950/40 hover:bg-amber-900/60 text-amber-300 border border-amber-500/30 text-[11px] transition-colors cursor-pointer disabled:opacity-30"
-                      >
-                        Soft Stop
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleAction(b.id, 'HARD_STOP')}
-                        disabled={b.status === 'STOPPED'}
-                        className="px-2.5 py-1 rounded bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-500/30 text-[11px] transition-colors cursor-pointer disabled:opacity-30"
-                      >
-                        Hard Cancel
-                      </button>
+                      <span title={BOT_COMMANDS_UNAVAILABLE} className="inline-block">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="xs"
+                          disabled
+                          className="bg-amber-950/40 text-amber-300 border-amber-500/30 text-[11px] disabled:opacity-30"
+                        >
+                          Soft Stop
+                        </Button>
+                      </span>
+                      <span title={BOT_COMMANDS_UNAVAILABLE} className="inline-block">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="xs"
+                          disabled
+                          className="bg-rose-950/40 text-rose-300 border-rose-500/30 text-[11px] disabled:opacity-30"
+                        >
+                          Hard Cancel
+                        </Button>
+                      </span>
                     </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
+          <p className="px-4 py-3 border-t border-[#1E293B] text-[11px] text-slate-400">{BOT_COMMANDS_UNAVAILABLE}</p>
         </div>
       )}
     </div>
