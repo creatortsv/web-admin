@@ -521,7 +521,7 @@ type AdminWireBody = Record<string, any>;
  * Every method calls the backend through `adminFetch` and resolves only from `readJsonOrThrow`.
  * No method returns local, cached, default or invented data and none reports success without a 2xx.
  * [Policy Ref: Contract §2.1 - fake data and fake success]
- * [Policy Ref: Standards §6.4 - zero fallback mocking]
+ * [Policy Ref: Standards §6.4 - no client-side fallbacks]
  */
 export const adminApi = {
   getSystemStats: async (): Promise<SystemStats> => {
@@ -540,7 +540,7 @@ export const adminApi = {
   getTreasuryVaults: async (): Promise<TreasuryVault[]> => {
     const data = await readJsonOrThrow<AdminWireBody>(await adminFetch('/v1/treasury/admin/vaults'));
     const rawVaults = Array.isArray(data.vaults) ? data.vaults : (Array.isArray(data) ? data : []);
-    return rawVaults.map((v: any): TreasuryVault => ({
+    return rawVaults.map((v: AdminWireBody): TreasuryVault => ({
       id: String(v.id || ''),
       chain: String(v.chain || ''),
       asset: String(v.asset || 'USDT'),
@@ -610,7 +610,7 @@ export const adminApi = {
   getUsers: async (): Promise<AdminUser[]> => {
     const data = await readJsonOrThrow<AdminWireBody>(await adminFetch('/v1/admin/users'));
     const rawUsers = Array.isArray(data.users) ? data.users : (Array.isArray(data) ? data : []);
-    return rawUsers.map((u: any): AdminUser => ({
+    return rawUsers.map((u: AdminWireBody): AdminUser => ({
       id: String(u.id || ''),
       email: String(u.email || ''),
       role: (u.role || 'trader') as AdminUser['role'],
@@ -624,7 +624,7 @@ export const adminApi = {
   getFleetBots: async (): Promise<FleetBot[]> => {
     const data = await readJsonOrThrow<AdminWireBody>(await adminFetch('/v1/admin/bots'));
     const rawBots = Array.isArray(data.bots) ? data.bots : (Array.isArray(data) ? data : []);
-    return rawBots.map((b: any): FleetBot => ({
+    return rawBots.map((b: AdminWireBody): FleetBot => ({
       id: String(b.id || ''),
       userId: String(b.userId || b.user_id || ''),
       label: String(b.label || b.name || ''),
@@ -697,7 +697,7 @@ export const adminApi = {
   getDivergentOrders: async (): Promise<DivergentOrder[]> => {
     const data = await readJsonOrThrow<AdminWireBody>(await adminFetch('/v1/trading/admin/divergent-orders'));
     const rawList = Array.isArray(data.orders) ? data.orders : (Array.isArray(data) ? data : []);
-    return rawList.map((o: any): DivergentOrder => ({
+    return rawList.map((o: AdminWireBody): DivergentOrder => ({
       id: String(o.id || ''),
       clientOrderId: String(o.clientOrderId || o.client_order_id || ''),
       userId: String(o.userId || o.user_id || ''),
@@ -749,7 +749,7 @@ export const adminApi = {
     const url = status ? `/v1/billing/admin/compensations?status=${encodeURIComponent(status)}` : `/v1/billing/admin/compensations`;
     const data = await readJsonOrThrow<AdminWireBody>(await adminFetch(url));
     const rawClaims = Array.isArray(data.claims) ? data.claims : (Array.isArray(data) ? data : []);
-    return rawClaims.map((c: any): CompensationClaim => ({
+    return rawClaims.map((c: AdminWireBody): CompensationClaim => ({
       id: String(c.id || ''),
       incidentId: String(c.incidentId || c.incident_id || ''),
       userId: String(c.userId || c.user_id || ''),
@@ -819,7 +819,7 @@ export const adminApi = {
     const rawConfigs: AdminWireBody[] = Array.isArray(data.configs) ? data.configs : [];
     return rawConfigs
       .map((c) => parseBrokerConfigWire(c))
-      .filter((c: BrokerConfigDTO) => c.exchange !== ('EXCHANGE_BITGET' as any));
+      .filter((c: BrokerConfigDTO) => (c.exchange as string) !== 'EXCHANGE_BITGET');
   },
 
   getBrokerConfig: async (exchange: ExchangeKey): Promise<BrokerConfigDTO | null> => {
@@ -898,7 +898,7 @@ export const adminApi = {
   getPublicExchangeConfigs: async (): Promise<PublicExchangeConfigDTO[]> => {
     const data = await readJsonOrThrow<AdminWireBody>(await adminFetch('/v1/exchanges/public-config'));
     if (data.exchanges && typeof data.exchanges === 'object') {
-      return Object.entries(data.exchanges).map(([slug, cfg]: [string, any]) => ({
+      return Object.entries(data.exchanges as Record<string, AdminWireBody>).map(([slug, cfg]) => ({
         exchange: (slug.toUpperCase().startsWith('EXCHANGE_') ? slug.toUpperCase() : `EXCHANGE_${slug.toUpperCase()}`) as ExchangeKey,
         name: cfg.name || slug,
         portalUrl: cfg.portalUrl || cfg.portal_url || '',

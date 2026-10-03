@@ -4,7 +4,7 @@
  * Every admin call either resolves with the backend's JSON body or rejects with the backend's
  * real HTTP status and reason. A network failure of `fetch` is never wrapped and propagates as is.
  * [Policy Ref: Contract §2.1 - no fake data and no fake success]
- * [Policy Ref: Standards §6.4 - zero fallback mocking]
+ * [Policy Ref: Standards §6.4 - no client-side fallbacks]
  */
 
 export class AdminApiError extends Error {
