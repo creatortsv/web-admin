@@ -1,26 +1,32 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { adminApi, INITIAL_VAULTS, TreasuryVault, clearMemoryStorage } from '../src/services/adminApi';
+import { adminApi, TreasuryVault } from '../src/services/adminApi';
+import {
+  GRPC_CODE_PERMISSION_DENIED,
+  REASON_ADMIN_ROUTES_DISABLED,
+  expectAdminRejection,
+  expectNoDataStorageAccess,
+  stubBackendError,
+  stubBrowserStorage,
+} from './support/adminBackend';
 
 describe('Treasury Vaults Admin Control Plane API', () => {
   beforeEach(() => {
-    clearMemoryStorage();
-    if (typeof window !== 'undefined') {
-      localStorage.clear();
-    }
     vi.restoreAllMocks();
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
-  it('retrieves empty array by default enforcing zero-mock data invariant', async () => {
-    const vaults = await adminApi.getTreasuryVaults();
-    expect(vaults).toEqual([]);
-    expect(INITIAL_VAULTS).toEqual([]);
+  it('rejects reading the vaults with the backend error and returns no local data', async () => {
+    const storage = stubBrowserStorage();
+    stubBackendError(403, GRPC_CODE_PERMISSION_DENIED, REASON_ADMIN_ROUTES_DISABLED);
+    await expectAdminRejection(adminApi.getTreasuryVaults(), 403, REASON_ADMIN_ROUTES_DISABLED);
+    expectNoDataStorageAccess(storage);
   });
 
-  it('saves, retrieves, and persists configured treasury vault', async () => {
+  it('rejects saving a vault with the backend error and persists nothing', async () => {
     const newVault: TreasuryVault = {
       id: 'vault-trc20',
       chain: 'Tron (TRC20)',
@@ -34,16 +40,12 @@ describe('Treasury Vaults Admin Control Plane API', () => {
       updatedAt: new Date().toISOString(),
     };
 
-    const saved = await adminApi.saveTreasuryVault(newVault);
-    expect(saved.sweepThresholdUsd).toBe(4000);
-    expect(saved.minDepositUsd).toBe(25);
-    expect(saved.receivingAddress).toBe('TLv9nSmL1VemB31bN5k3z9fH8E8qZ1v9nNEW');
+    const storage = stubBrowserStorage();
+    stubBackendError(403, GRPC_CODE_PERMISSION_DENIED, REASON_ADMIN_ROUTES_DISABLED);
+    await expectAdminRejection(adminApi.saveTreasuryVault(newVault), 403, REASON_ADMIN_ROUTES_DISABLED);
+    expectNoDataStorageAccess(storage);
 
-    const list = await adminApi.getTreasuryVaults();
-    expect(list.length).toBe(1);
-    const found = list.find((v) => v.id === newVault.id);
-    expect(found?.sweepThresholdUsd).toBe(4000);
-    expect(found?.minDepositUsd).toBe(25);
+    await expectAdminRejection(adminApi.getTreasuryVaults(), 403, REASON_ADMIN_ROUTES_DISABLED);
   });
 
   it('triggers on-demand cold storage sweep successfully via backend API', async () => {
