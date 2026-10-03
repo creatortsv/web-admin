@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   AdminApiError,
   AdminContractError,
+  WIRE_KIND,
   WireObject,
   describeAdminError,
   readJsonOrThrow,
@@ -70,10 +71,10 @@ describe('describeAdminError', () => {
 
 describe('AdminContractError and the wire reader', () => {
   it('renders the field a malformed 2xx body violated', () => {
-    const error = new AdminContractError('vaults[0].isActive', 'boolean');
+    const error = new AdminContractError('vaults[0].isActive', WIRE_KIND.BOOLEAN);
     expect(error.field).toBe('vaults[0].isActive');
     expect(describeAdminError(error)).toContain('vaults[0].isActive');
-    expect(describeAdminError(error)).toContain('boolean');
+    expect(describeAdminError(error)).toContain(WIRE_KIND.BOOLEAN);
   });
 
   it('reads present values, including falsy ones, without defaulting', () => {
@@ -107,5 +108,17 @@ describe('AdminContractError and the wire reader', () => {
     expect(WireObject.items({}, 'vaults')).toEqual([]);
     expect(() => WireObject.items({ vaults: {} }, 'vaults')).toThrow(/vaults/);
     expect(() => WireObject.items('text', 'vaults')).toThrow(AdminContractError);
+  });
+
+  it('reads optional booleans, numbers and string maps without inventing a value', () => {
+    const wire = WireObject.from({ ok: false, n: '12', headers: { a: 'b' }, bad: { a: 1 } }, 'item');
+    expect(wire.optionalBoolean('ok')).toBe(false);
+    expect(wire.optionalBoolean('missing')).toBeUndefined();
+    expect(wire.optionalNumber('n')).toBe(12);
+    expect(wire.optionalNumber('missing')).toBeUndefined();
+    expect(wire.optionalStringMap('headers')).toEqual({ a: 'b' });
+    expect(wire.optionalStringMap('missing')).toBeUndefined();
+    expect(() => wire.optionalStringMap('bad')).toThrow(/item\.bad/);
+    expect(() => wire.optionalBoolean('n')).toThrow(AdminContractError);
   });
 });

@@ -11,7 +11,13 @@ resolves only from `readJsonOrThrow` (`src/services/adminApiError.ts`):
   `reason` is the `message` field of the grpc-gateway error body
   (`{"code":7,"message":"admin_routes_disabled"}`), or the response's `statusText` when the body
   is not that JSON;
-- a network failure of `fetch` propagates unchanged.
+- a network failure of `fetch` propagates unchanged;
+- a 2xx body that lacks a field the UI type requires, or carries it with the wrong type, rejects
+  with `AdminContractError`, whose `field` names the violated path (for example
+  `vaults[0].isActive`). The console never invents a value for such a field: there are no
+  per-field defaults on the success path, and an absent list is the only value read as empty
+  (proto3 omits an empty repeated field). Fields the UI type declares optional stay `undefined`
+  when the backend omits them.
 
 Pages render four states for every backend read: loading (`Skeleton`), error (a
 `@creatortsv/pkg-ui` `Alert` with the HTTP status and reason, for example

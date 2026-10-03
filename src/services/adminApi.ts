@@ -163,7 +163,7 @@ import {
 } from '../types/contracts/brokerConfig';
 import { useAdminAuthStore } from '../stores/useAdminAuthStore';
 import { STORAGE_KEYS } from '../lib/constants/storage';
-import { readJsonOrThrow } from './adminApiError';
+import { AdminContractError, WIRE_KIND, WireObject, readJsonOrThrow } from './adminApiError';
 
 export { ATTRIBUTION_TYPE, VENUE_LIFECYCLE_STATUS, BROKER_CONFIG_STATUS };
 export type { DecommissionProposal };
@@ -260,11 +260,11 @@ export interface PublicExchangeConfigDTO {
   portalUrl: string;
   staticNatIps: string[];
   isBrokerActive: boolean;
-  lifecycleStatus?: VenueLifecycleStatus;
+  lifecycleStatus: VenueLifecycleStatus;
   sunsetDeadline?: string | null;
   sunsetNotice?: string | null;
-  allowNewKeys?: boolean;
-  allowNewBots?: boolean;
+  allowNewKeys: boolean;
+  allowNewBots: boolean;
 }
 
 export function normalizeExchangeKey(raw: string): ExchangeKey {
@@ -514,8 +514,131 @@ export async function adminFetch(input: RequestInfo | URL, init?: RequestInit): 
   return response;
 }
 
-// Wire bodies are read structurally here; the typed generated admin client of WP-8.5a replaces this alias.
-type AdminWireBody = Record<string, any>;
+// Wire bodies that are only passed on are read as unknown records; the typed generated admin client of WP-8.5a replaces this alias.
+type AdminWireBody = Record<string, unknown>;
+
+/** Every mapper below reads required fields without a default: a missing field is an `AdminContractError`. */
+function toTreasuryVault(wire: WireObject): TreasuryVault {
+  return {
+    id: wire.string('id'),
+    chain: wire.string('chain'),
+    asset: wire.string('asset'),
+    receivingAddress: wire.string('receivingAddress', 'receiving_address'),
+    coldSweepAddress: wire.string('coldSweepAddress', 'cold_sweep_address'),
+    minDepositUsd: wire.number('minDepositUsd', 'min_deposit_usd'),
+    sweepThresholdUsd: wire.number('sweepThresholdUsd', 'sweep_threshold_usd'),
+    currentBalanceUsd: wire.number('currentBalanceUsd', 'current_balance_usd'),
+    isActive: wire.boolean('isActive', 'is_active'),
+    updatedAt: wire.string('updatedAt', 'updated_at'),
+  };
+}
+
+function toAdminUser(wire: WireObject): AdminUser {
+  return {
+    id: wire.string('id'),
+    email: wire.string('email'),
+    role: wire.string('role') as AdminUser['role'],
+    status: wire.string('status') as AdminUser['status'],
+    activeBotsCount: wire.number('activeBotsCount', 'active_bots_count'),
+    totalVolumeUsd: wire.number('totalVolumeUsd', 'total_volume_usd'),
+    createdAt: wire.string('createdAt', 'created_at'),
+  };
+}
+
+function toFleetBot(wire: WireObject): FleetBot {
+  return {
+    id: wire.string('id'),
+    userId: wire.string('userId', 'user_id'),
+    label: wire.string('label', 'name'),
+    strategy: wire.string('strategy'),
+    symbol: wire.string('symbol'),
+    exchange: wire.optionalString('exchange') || undefined,
+    status: wire.string('status') as FleetBot['status'],
+    activeOrders: wire.number('activeOrders', 'active_orders'),
+    unrealizedPnlUsd: wire.number('unrealizedPnlUsd', 'unrealized_pnl_usd'),
+    startedAt: wire.string('startedAt', 'started_at'),
+  };
+}
+
+function toDivergentOrder(wire: WireObject): DivergentOrder {
+  return {
+    id: wire.string('id'),
+    clientOrderId: wire.string('clientOrderId', 'client_order_id'),
+    userId: wire.string('userId', 'user_id'),
+    botId: wire.optionalString('botId', 'bot_id') || undefined,
+    symbol: wire.string('symbol'),
+    exchange: wire.optionalString('exchange') || undefined,
+    side: wire.string('side') as DivergentOrder['side'],
+    orderType: wire.string('orderType', 'order_type') as DivergentOrder['orderType'],
+    price: wire.string('price'),
+    quantity: wire.string('quantity'),
+    localStatus: wire.string('localStatus', 'local_status') as DivergentOrder['localStatus'],
+    exchangeStatus: wire.string('exchangeStatus', 'exchange_status') as DivergentOrder['exchangeStatus'],
+    discrepancyType: wire.string('discrepancyType', 'discrepancy_type') as DivergentOrder['discrepancyType'],
+    lastCheckedAt: wire.string('lastCheckedAt', 'last_checked_at'),
+    createdAt: wire.string('createdAt', 'created_at'),
+    divergenceAgeSeconds: wire.number('divergenceAgeSeconds', 'divergence_age_seconds'),
+  };
+}
+
+function toCompensationClaim(wire: WireObject): CompensationClaim {
+  return {
+    id: wire.string('id'),
+    incidentId: wire.string('incidentId', 'incident_id'),
+    userId: wire.string('userId', 'user_id'),
+    amountCents: wire.number('amountCents', 'amount_cents'),
+    reason: wire.string('reason'),
+    evidencePayload: wire.string('evidencePayload', 'evidence_payload'),
+    status: wire.string('status') as CompensationClaim['status'],
+    createdByAdminId: wire.string('createdByAdminId', 'created_by_admin_id'),
+    approvedByAdminId: wire.optionalString('approvedByAdminId', 'approved_by_admin_id') || undefined,
+    rejectionReason: wire.optionalString('rejectionReason', 'rejection_reason') || undefined,
+    createdAt: wire.string('createdAt', 'created_at'),
+    updatedAt: wire.string('updatedAt', 'updated_at'),
+    approvedAt: wire.optionalString('approvedAt', 'approved_at') || undefined,
+  };
+}
+
+/** `natEgressIps` is the platform-wide list of the response; a venue entry may carry its own. */
+function toPublicExchangeConfig(
+  exchange: ExchangeKey,
+  wire: WireObject,
+  natEgressIps: string[] | undefined,
+): PublicExchangeConfigDTO {
+  return {
+    exchange,
+    name: wire.string('name'),
+    portalUrl: wire.string('portalUrl', 'portal_url'),
+    staticNatIps: natEgressIps ?? wire.stringList('staticNatIps', 'static_nat_ips'),
+    isBrokerActive: wire.boolean('allowNewBots', 'isBrokerActive', 'is_broker_active'),
+    lifecycleStatus: wire.string('lifecycleStatus', 'lifecycle_status') as VenueLifecycleStatus,
+    sunsetDeadline: wire.optionalString('sunsetDeadline', 'sunset_deadline') ?? null,
+    sunsetNotice: wire.optionalString('sunsetNotice', 'sunset_notice') ?? null,
+    allowNewKeys: wire.boolean('allowNewKeys', 'allow_new_keys'),
+    allowNewBots: wire.boolean('allowNewBots', 'allow_new_bots'),
+  };
+}
+
+/**
+ * The reason of a failed sweep: the response text, the `error` field of a JSON body, or the status
+ * text when the body cannot be read. No reason is invented when the backend sent none.
+ */
+async function readSweepFailure(res: Response): Promise<string> {
+  try {
+    if (typeof res.text === 'function') {
+      const text = await res.text();
+      return text !== '' ? text : res.statusText;
+    }
+    const body: unknown = await res.json();
+    if (typeof body === 'object' && body !== null && 'error' in body && body.error) {
+      return String(body.error);
+    }
+    return JSON.stringify(body);
+  } catch {
+    // The body is unreadable: the status text is the only reason the backend gave.
+    return res.statusText;
+  }
+}
 
 /**
  * Every method calls the backend through `adminFetch` and resolves only from `readJsonOrThrow`.
@@ -525,33 +648,21 @@ type AdminWireBody = Record<string, any>;
  */
 export const adminApi = {
   getSystemStats: async (): Promise<SystemStats> => {
-    const data = await readJsonOrThrow<AdminWireBody>(await adminFetch('/v1/admin/stats'));
+    const wire = WireObject.from(await readJsonOrThrow<unknown>(await adminFetch('/v1/admin/stats')));
     return {
-      activeBotsCount: Number.isFinite(Number(data.activeBotsCount ?? data.active_bots_count)) ? Number(data.activeBotsCount ?? data.active_bots_count) : 0,
-      totalVolume24hUsd: Number.isFinite(Number(data.totalVolume24hUsd ?? data.total_volume_24h_usd)) ? Number(data.totalVolume24hUsd ?? data.total_volume_24h_usd) : 0,
-      pendingSweepUsd: Number.isFinite(Number(data.pendingSweepUsd ?? data.pending_sweep_usd)) ? Number(data.pendingSweepUsd ?? data.pending_sweep_usd) : 0,
-      gatewayStatus: (data.gatewayStatus || data.gateway_status) as SystemStats['gatewayStatus'],
-      kafkaLag: Number.isFinite(Number(data.kafkaLag ?? data.kafka_lag)) ? Number(data.kafkaLag ?? data.kafka_lag) : 0,
-      dbConnections: Number.isFinite(Number(data.dbConnections ?? data.db_connections)) ? Number(data.dbConnections ?? data.db_connections) : 0,
-      redisMemoryMb: Number.isFinite(Number(data.redisMemoryMb ?? data.redis_memory_mb)) ? Number(data.redisMemoryMb ?? data.redis_memory_mb) : 0,
+      activeBotsCount: wire.number('activeBotsCount', 'active_bots_count'),
+      totalVolume24hUsd: wire.number('totalVolume24hUsd', 'total_volume_24h_usd'),
+      pendingSweepUsd: wire.number('pendingSweepUsd', 'pending_sweep_usd'),
+      gatewayStatus: wire.string('gatewayStatus', 'gateway_status') as SystemStats['gatewayStatus'],
+      kafkaLag: wire.number('kafkaLag', 'kafka_lag'),
+      dbConnections: wire.number('dbConnections', 'db_connections'),
+      redisMemoryMb: wire.number('redisMemoryMb', 'redis_memory_mb'),
     };
   },
 
   getTreasuryVaults: async (): Promise<TreasuryVault[]> => {
-    const data = await readJsonOrThrow<AdminWireBody>(await adminFetch('/v1/treasury/admin/vaults'));
-    const rawVaults = Array.isArray(data.vaults) ? data.vaults : (Array.isArray(data) ? data : []);
-    return rawVaults.map((v: AdminWireBody): TreasuryVault => ({
-      id: String(v.id || ''),
-      chain: String(v.chain || ''),
-      asset: String(v.asset || 'USDT'),
-      receivingAddress: String(v.receivingAddress || v.receiving_address || ''),
-      coldSweepAddress: String(v.coldSweepAddress || v.cold_sweep_address || ''),
-      minDepositUsd: Number.isFinite(Number(v.minDepositUsd ?? v.min_deposit_usd)) ? Number(v.minDepositUsd ?? v.min_deposit_usd) : 0,
-      sweepThresholdUsd: Number.isFinite(Number(v.sweepThresholdUsd ?? v.sweep_threshold_usd)) ? Number(v.sweepThresholdUsd ?? v.sweep_threshold_usd) : 0,
-      currentBalanceUsd: Number.isFinite(Number(v.currentBalanceUsd ?? v.current_balance_usd)) ? Number(v.currentBalanceUsd ?? v.current_balance_usd) : 0,
-      isActive: v.isActive !== undefined ? Boolean(v.isActive) : Boolean(v.is_active ?? true),
-      updatedAt: String(v.updatedAt || v.updated_at || new Date().toISOString()),
-    }));
+    const body = await readJsonOrThrow<unknown>(await adminFetch('/v1/treasury/admin/vaults'));
+    return WireObject.items(body, 'vaults').map(toTreasuryVault);
   },
 
   saveTreasuryVault: async (vault: TreasuryVault): Promise<TreasuryVault> => {
@@ -580,25 +691,15 @@ export const adminApi = {
       }),
     });
     if (!res.ok) {
-      let errText = '';
-      try {
-        if (typeof res.text === 'function') {
-          errText = await res.text();
-        } else if (typeof res.json === 'function') {
-          const j = await res.json();
-          errText = (j && j.error) ? String(j.error) : JSON.stringify(j);
-        }
-      } catch {
-        // ignore
-      }
-      throw new Error(`Sweep initiation failed (HTTP ${res.status}): ${errText || res.statusText || 'Treasury service unreachable'}`);
+      const reason = await readSweepFailure(res);
+      throw new Error(`Sweep initiation failed (HTTP ${res.status})${reason !== '' ? `: ${reason}` : ''}`);
     }
-    const data = await readJsonOrThrow<AdminWireBody>(res);
+    const wire = WireObject.from(await readJsonOrThrow<unknown>(res));
     return {
-      success: Boolean(data.success),
-      sweepId: data.sweepId || data.sweep_id,
-      txHash: data.txHash || data.tx_hash,
-      message: String(data.message ?? ''),
+      success: wire.optionalBoolean('success') === true,
+      sweepId: wire.optionalString('sweepId', 'sweep_id'),
+      txHash: wire.optionalString('txHash', 'tx_hash'),
+      message: wire.string('message'),
     };
   },
 
@@ -608,34 +709,13 @@ export const adminApi = {
   },
 
   getUsers: async (): Promise<AdminUser[]> => {
-    const data = await readJsonOrThrow<AdminWireBody>(await adminFetch('/v1/admin/users'));
-    const rawUsers = Array.isArray(data.users) ? data.users : (Array.isArray(data) ? data : []);
-    return rawUsers.map((u: AdminWireBody): AdminUser => ({
-      id: String(u.id || ''),
-      email: String(u.email || ''),
-      role: (u.role || 'trader') as AdminUser['role'],
-      status: (u.status || 'ACTIVE') as AdminUser['status'],
-      activeBotsCount: Number.isFinite(Number(u.activeBotsCount ?? u.active_bots_count)) ? Number(u.activeBotsCount ?? u.active_bots_count) : 0,
-      totalVolumeUsd: Number.isFinite(Number(u.totalVolumeUsd ?? u.total_volume_usd)) ? Number(u.totalVolumeUsd ?? u.total_volume_usd) : 0,
-      createdAt: String(u.createdAt || u.created_at || new Date().toISOString()),
-    }));
+    const body = await readJsonOrThrow<unknown>(await adminFetch('/v1/admin/users'));
+    return WireObject.items(body, 'users').map(toAdminUser);
   },
 
   getFleetBots: async (): Promise<FleetBot[]> => {
-    const data = await readJsonOrThrow<AdminWireBody>(await adminFetch('/v1/admin/bots'));
-    const rawBots = Array.isArray(data.bots) ? data.bots : (Array.isArray(data) ? data : []);
-    return rawBots.map((b: AdminWireBody): FleetBot => ({
-      id: String(b.id || ''),
-      userId: String(b.userId || b.user_id || ''),
-      label: String(b.label || b.name || ''),
-      strategy: String(b.strategy || ''),
-      symbol: String(b.symbol || ''),
-      exchange: b.exchange ? String(b.exchange) : undefined,
-      status: (b.status || 'STOPPED') as FleetBot['status'],
-      activeOrders: Number.isFinite(Number(b.activeOrders ?? b.active_orders)) ? Number(b.activeOrders ?? b.active_orders) : 0,
-      unrealizedPnlUsd: Number.isFinite(Number(b.unrealizedPnlUsd ?? b.unrealized_pnl_usd)) ? Number(b.unrealizedPnlUsd ?? b.unrealized_pnl_usd) : 0,
-      startedAt: String(b.startedAt || b.started_at || new Date().toISOString()),
-    }));
+    const body = await readJsonOrThrow<unknown>(await adminFetch('/v1/admin/bots'));
+    return WireObject.items(body, 'bots').map(toFleetBot);
   },
 
   listUniversalGateways: async (): Promise<UniversalGateway[]> => {
@@ -695,26 +775,8 @@ export const adminApi = {
 
   // Divergent Orders Governance Console
   getDivergentOrders: async (): Promise<DivergentOrder[]> => {
-    const data = await readJsonOrThrow<AdminWireBody>(await adminFetch('/v1/trading/admin/divergent-orders'));
-    const rawList = Array.isArray(data.orders) ? data.orders : (Array.isArray(data) ? data : []);
-    return rawList.map((o: AdminWireBody): DivergentOrder => ({
-      id: String(o.id || ''),
-      clientOrderId: String(o.clientOrderId || o.client_order_id || ''),
-      userId: String(o.userId || o.user_id || ''),
-      botId: o.botId || o.bot_id ? String(o.botId || o.bot_id) : undefined,
-      symbol: String(o.symbol || ''),
-      exchange: o.exchange ? String(o.exchange) : undefined,
-      side: (o.side || 'BUY') as DivergentOrder['side'],
-      orderType: (o.orderType || o.order_type || 'LIMIT') as DivergentOrder['orderType'],
-      price: String(o.price || '0'),
-      quantity: String(o.quantity || '0'),
-      localStatus: (o.localStatus || o.local_status || 'IN_FLIGHT_UNKNOWN') as DivergentOrder['localStatus'],
-      exchangeStatus: (o.exchangeStatus || o.exchange_status || 'NEW') as DivergentOrder['exchangeStatus'],
-      discrepancyType: (o.discrepancyType || o.discrepancy_type || 'STATE_MISMATCH') as DivergentOrder['discrepancyType'],
-      lastCheckedAt: String(o.lastCheckedAt || o.last_checked_at || new Date().toISOString()),
-      createdAt: String(o.createdAt || o.created_at || new Date().toISOString()),
-      divergenceAgeSeconds: Number.isFinite(Number(o.divergenceAgeSeconds ?? o.divergence_age_seconds)) ? Number(o.divergenceAgeSeconds ?? o.divergence_age_seconds) : 0,
-    }));
+    const body = await readJsonOrThrow<unknown>(await adminFetch('/v1/trading/admin/divergent-orders'));
+    return WireObject.items(body, 'orders').map(toDivergentOrder);
   },
 
   // The three divergence actions have no backend route: they show the real 404 and never simulate
@@ -747,23 +809,8 @@ export const adminApi = {
   // [Policy Ref: FLP FL-14, FL-16 - an administrative money action is never reported done without the backend]
   getCompensationClaims: async (status?: string): Promise<CompensationClaim[]> => {
     const url = status ? `/v1/billing/admin/compensations?status=${encodeURIComponent(status)}` : `/v1/billing/admin/compensations`;
-    const data = await readJsonOrThrow<AdminWireBody>(await adminFetch(url));
-    const rawClaims = Array.isArray(data.claims) ? data.claims : (Array.isArray(data) ? data : []);
-    return rawClaims.map((c: AdminWireBody): CompensationClaim => ({
-      id: String(c.id || ''),
-      incidentId: String(c.incidentId || c.incident_id || ''),
-      userId: String(c.userId || c.user_id || ''),
-      amountCents: Number.isFinite(Number(c.amountCents ?? c.amount_cents)) ? Number(c.amountCents ?? c.amount_cents) : 0,
-      reason: String(c.reason || ''),
-      evidencePayload: String(c.evidencePayload || c.evidence_payload || '{}'),
-      status: (c.status || 'PENDING_APPROVAL') as CompensationClaim['status'],
-      createdByAdminId: String(c.createdByAdminId || c.created_by_admin_id || ''),
-      approvedByAdminId: c.approvedByAdminId || c.approved_by_admin_id ? String(c.approvedByAdminId || c.approved_by_admin_id) : undefined,
-      rejectionReason: c.rejectionReason || c.rejection_reason ? String(c.rejectionReason || c.rejection_reason) : undefined,
-      createdAt: String(c.createdAt || c.created_at || new Date().toISOString()),
-      updatedAt: String(c.updatedAt || c.updated_at || new Date().toISOString()),
-      approvedAt: c.approvedAt || c.approved_at ? String(c.approvedAt || c.approved_at) : undefined,
-    }));
+    const body = await readJsonOrThrow<unknown>(await adminFetch(url));
+    return WireObject.items(body, 'claims').map(toCompensationClaim);
   },
 
   createCompensationClaim: async (
@@ -816,10 +863,8 @@ export const adminApi = {
   // Broker & Rebate Governance Methods
   getBrokerConfigs: async (): Promise<BrokerConfigDTO[]> => {
     const data = await readJsonOrThrow<AdminWireBody>(await adminFetch('/v1/admin/broker-configs?include_inactive=true'));
-    const rawConfigs: AdminWireBody[] = Array.isArray(data.configs) ? data.configs : [];
-    return rawConfigs
-      .map((c) => parseBrokerConfigWire(c))
-      .filter((c: BrokerConfigDTO) => (c.exchange as string) !== 'EXCHANGE_BITGET');
+    const rawConfigs: unknown[] = Array.isArray(data.configs) ? data.configs : [];
+    return rawConfigs.map((c) => parseBrokerConfigWire(c));
   },
 
   getBrokerConfig: async (exchange: ExchangeKey): Promise<BrokerConfigDTO | null> => {
@@ -871,47 +916,47 @@ export const adminApi = {
 
   testBrokerAttribution: async (req: TestBrokerAttributionRequest): Promise<TestBrokerAttributionResponse> => {
     const exchangeSlug = req.exchange.replace(/^EXCHANGE_/, '').toLowerCase();
-    const data = await readJsonOrThrow<AdminWireBody>(
-      await adminFetch('/v1/admin/broker-configs/test-attribution', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          exchange: exchangeSlug,
-          environment: 'production',
-          raw_client_order_id: req.testOrderId,
-          symbol: 'BTCUSDT',
-          order_type: 'LIMIT',
-          execute_sandbox_probe: false,
+    const wire = WireObject.from(
+      await readJsonOrThrow<unknown>(
+        await adminFetch('/v1/admin/broker-configs/test-attribution', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            exchange: exchangeSlug,
+            environment: 'production',
+            raw_client_order_id: req.testOrderId,
+            symbol: 'BTCUSDT',
+            order_type: 'LIMIT',
+            execute_sandbox_probe: false,
+          }),
         }),
-      })
+      ),
     );
     return {
-      success: data.is_valid === true,
-      attributedOrderId: data.formatted_client_order_id,
-      injectedHeaders: data.injected_headers,
-      injectedParams: data.injected_payload_fields,
-      statusMessage: data.diagnostic_message,
-      attributionLatencyNanos: data.formatting_latency_nanos,
+      success: wire.optionalBoolean('is_valid') === true,
+      attributedOrderId: wire.optionalString('formatted_client_order_id'),
+      injectedHeaders: wire.optionalStringMap('injected_headers'),
+      injectedParams: wire.optionalStringMap('injected_payload_fields'),
+      statusMessage: wire.optionalString('diagnostic_message'),
+      attributionLatencyNanos: wire.optionalNumber('formatting_latency_nanos'),
     };
   },
 
   getPublicExchangeConfigs: async (): Promise<PublicExchangeConfigDTO[]> => {
-    const data = await readJsonOrThrow<AdminWireBody>(await adminFetch('/v1/exchanges/public-config'));
-    if (data.exchanges && typeof data.exchanges === 'object') {
-      return Object.entries(data.exchanges as Record<string, AdminWireBody>).map(([slug, cfg]) => ({
-        exchange: (slug.toUpperCase().startsWith('EXCHANGE_') ? slug.toUpperCase() : `EXCHANGE_${slug.toUpperCase()}`) as ExchangeKey,
-        name: cfg.name || slug,
-        portalUrl: cfg.portalUrl || cfg.portal_url || '',
-        staticNatIps: data.natEgressIps || cfg.static_nat_ips || ['34.118.24.10', '34.118.24.11'],
-        isBrokerActive: cfg.allowNewBots ?? cfg.is_broker_active ?? true,
-        lifecycleStatus: cfg.lifecycleStatus || cfg.lifecycle_status || 'VENUE_LIFECYCLE_STATUS_ACTIVE',
-        sunsetDeadline: cfg.sunsetDeadline || cfg.sunset_deadline || null,
-        sunsetNotice: cfg.sunsetNotice || cfg.sunset_notice || null,
-        allowNewKeys: cfg.allowNewKeys ?? cfg.allow_new_keys ?? true,
-        allowNewBots: cfg.allowNewBots ?? cfg.allow_new_bots ?? true,
-      }));
+    const root = WireObject.from(await readJsonOrThrow<unknown>(await adminFetch('/v1/exchanges/public-config')));
+    const natEgressIps = root.has('natEgressIps') ? root.stringList('natEgressIps') : undefined;
+    if (root.has('exchanges')) {
+      return root.entries('exchanges').map(([slug, cfg]) =>
+        toPublicExchangeConfig(
+          (slug.toUpperCase().startsWith('EXCHANGE_') ? slug.toUpperCase() : `EXCHANGE_${slug.toUpperCase()}`) as ExchangeKey,
+          cfg,
+          natEgressIps,
+        ),
+      );
     }
-    return data.configs ?? [];
+    return root.list('configs').map((cfg) =>
+      toPublicExchangeConfig(cfg.string('exchange') as ExchangeKey, cfg, natEgressIps),
+    );
   },
 
   // Maker-Checker Venue Decommissioning Governance (4-Eyes Dual Approval)
