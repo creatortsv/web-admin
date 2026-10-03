@@ -78,8 +78,9 @@ function isWireRecord(value: unknown): value is WireRecord {
 }
 
 /**
- * Structural reader of one wire object. Every accessor takes the field names the backend may use
- * (lowerCamelCase first, then a legacy alias) and returns the first one that is present.
+ * Structural reader of one wire object. The gateway writes proto3 JSON in lowerCamelCase
+ * (grpc-gateway default marshaler, Standards §4.5), so an accessor takes the lowerCamelCase wire
+ * name of a field; it may list further names of the same field and returns the first one present.
  * A required accessor throws `AdminContractError` for a missing or mistyped field and never
  * substitutes a default; an optional accessor returns `undefined` for an absent field.
  * The typed generated admin client of WP-8.5a replaces this reader.

@@ -63,15 +63,24 @@ export interface TestConnectionResponse {
   message: string;
 }
 
+export const ADMIN_USER_ROLES = ['super_admin', 'admin', 'trader', 'sandbox'] as const;
+export type AdminUserRole = (typeof ADMIN_USER_ROLES)[number];
+
+export const ADMIN_USER_STATUSES = ['ACTIVE', 'SUSPENDED', 'BANNED'] as const;
+export type AdminUserStatus = (typeof ADMIN_USER_STATUSES)[number];
+
 export interface AdminUser {
   id: string;
   email: string;
-  role: 'super_admin' | 'admin' | 'trader' | 'sandbox';
-  status: 'ACTIVE' | 'SUSPENDED' | 'BANNED';
+  role: AdminUserRole;
+  status: AdminUserStatus;
   activeBotsCount: number;
   totalVolumeUsd: number;
   createdAt: string;
 }
+
+export const FLEET_BOT_STATUSES = ['RUNNING', 'SOFT_STOPPING', 'STOPPED', 'ERROR'] as const;
+export type FleetBotStatus = (typeof FLEET_BOT_STATUSES)[number];
 
 export interface FleetBot {
   id: string;
@@ -80,7 +89,7 @@ export interface FleetBot {
   strategy: string;
   symbol: string;
   exchange?: string;
-  status: 'RUNNING' | 'SOFT_STOPPING' | 'STOPPED' | 'ERROR';
+  status: FleetBotStatus;
   activeOrders: number;
   unrealizedPnlUsd: number;
   startedAt: string;
@@ -107,6 +116,39 @@ export interface SystemStats {
   redisMemoryMb: number;
 }
 
+type GatewayStatus = SystemStats['gatewayStatus'];
+
+// Keyed by the union, so the compiler rejects a list that misses or adds a member.
+const GATEWAY_STATUS_MEMBERS: Record<GatewayStatus, true> = { HEALTHY: true, DEGRADED: true };
+const GATEWAY_STATUSES = Object.keys(GATEWAY_STATUS_MEMBERS) as GatewayStatus[];
+
+export const DIVERGENT_ORDER_SIDES = ['BUY', 'SELL'] as const;
+export type DivergentOrderSide = (typeof DIVERGENT_ORDER_SIDES)[number];
+
+export const DIVERGENT_ORDER_TYPES = ['LIMIT', 'MARKET', 'LIMIT_MAKER'] as const;
+export type DivergentOrderType = (typeof DIVERGENT_ORDER_TYPES)[number];
+
+export const DIVERGENT_LOCAL_STATUSES = ['IN_FLIGHT_UNKNOWN', 'PENDING_SUBMIT', 'REJECTED', 'NEW'] as const;
+export type DivergentLocalStatus = (typeof DIVERGENT_LOCAL_STATUSES)[number];
+
+export const DIVERGENT_EXCHANGE_STATUSES = [
+  'FILLED',
+  'PARTIALLY_FILLED',
+  'NEW',
+  'CANCELED',
+  'REJECTED',
+  'NOT_FOUND',
+] as const;
+export type DivergentExchangeStatus = (typeof DIVERGENT_EXCHANGE_STATUSES)[number];
+
+export const DIVERGENCE_DISCREPANCY_TYPES = [
+  'STATE_MISMATCH',
+  'IN_FLIGHT_TIMEOUT',
+  'UNKNOWN_ON_EXCHANGE',
+  'GHOST_FILL',
+] as const;
+export type DivergenceDiscrepancyType = (typeof DIVERGENCE_DISCREPANCY_TYPES)[number];
+
 export interface DivergentOrder {
   id: string;
   clientOrderId: string;
@@ -114,17 +156,20 @@ export interface DivergentOrder {
   botId?: string;
   symbol: string;
   exchange?: string;
-  side: 'BUY' | 'SELL';
-  orderType: 'LIMIT' | 'MARKET' | 'LIMIT_MAKER';
+  side: DivergentOrderSide;
+  orderType: DivergentOrderType;
   price: string;
   quantity: string;
-  localStatus: 'IN_FLIGHT_UNKNOWN' | 'PENDING_SUBMIT' | 'REJECTED' | 'NEW';
-  exchangeStatus: 'FILLED' | 'PARTIALLY_FILLED' | 'NEW' | 'CANCELED' | 'REJECTED' | 'NOT_FOUND';
-  discrepancyType: 'STATE_MISMATCH' | 'IN_FLIGHT_TIMEOUT' | 'UNKNOWN_ON_EXCHANGE' | 'GHOST_FILL';
+  localStatus: DivergentLocalStatus;
+  exchangeStatus: DivergentExchangeStatus;
+  discrepancyType: DivergenceDiscrepancyType;
   lastCheckedAt: string;
   createdAt: string;
   divergenceAgeSeconds: number;
 }
+
+export const COMPENSATION_CLAIM_STATUSES = ['PENDING_APPROVAL', 'APPROVED', 'REJECTED'] as const;
+export type CompensationClaimStatus = (typeof COMPENSATION_CLAIM_STATUSES)[number];
 
 export interface CompensationClaim {
   id: string;
@@ -133,7 +178,7 @@ export interface CompensationClaim {
   amountCents: number;
   reason: string;
   evidencePayload: string;
-  status: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';
+  status: CompensationClaimStatus;
   createdByAdminId: string;
   approvedByAdminId?: string;
   rejectionReason?: string;
@@ -310,13 +355,13 @@ const DECOMMISSION_PROPOSAL_STATUSES: readonly DecommissionProposal['status'][] 
 
 function parseDecommissionProposal(wire: WireObject): DecommissionProposal {
   return {
-    proposedBy: wire.string('proposedBy', 'proposed_by'),
-    proposedAt: wire.string('proposedAt', 'proposed_at'),
+    proposedBy: wire.string('proposedBy'),
+    proposedAt: wire.string('proposedAt'),
     reason: wire.string('reason'),
     status: wire.oneOf(DECOMMISSION_PROPOSAL_STATUSES, 'status'),
-    approvedBy: wire.optionalString('approvedBy', 'approved_by'),
-    approvedAt: wire.optionalString('approvedAt', 'approved_at'),
-    rejectionReason: wire.optionalString('rejectionReason', 'rejection_reason'),
+    approvedBy: wire.optionalString('approvedBy'),
+    approvedAt: wire.optionalString('approvedAt'),
+    rejectionReason: wire.optionalString('rejectionReason'),
   };
 }
 
@@ -334,8 +379,8 @@ function parseDecommissionProposal(wire: WireObject): DecommissionProposal {
 export function parseBrokerConfigWire(wire: WireObject): BrokerConfigDTO {
   const isActive = wire.boolean('isActive', 'is_active');
   const rebatePercentage = wire.number('rebatePercentage', 'rebate_percentage');
-  const payloadParams = wire.optionalStringMap('payloadParams', 'payload_params');
-  const proposal = wire.optionalObject('decommissionProposal') ?? wire.optionalObject('decommission_proposal');
+  const payloadParams = wire.optionalStringMap('payloadParams');
+  const proposal = wire.optionalObject('decommissionProposal');
 
   return {
     id: wire.optionalString('id'),
@@ -344,17 +389,17 @@ export function parseBrokerConfigWire(wire: WireObject): BrokerConfigDTO {
     attributionType: wire.oneOf(Object.values(ATTRIBUTION_TYPE), 'attributionType', 'attribution_type'),
     status: isActive ? BROKER_CONFIG_STATUS.ACTIVE : BROKER_CONFIG_STATUS.INACTIVE,
     lifecycleStatus: wire.oneOf(Object.values(VENUE_LIFECYCLE_STATUS), 'lifecycleStatus', 'lifecycle_status'),
-    sunsetDeadline: wire.optionalString('sunsetDeadline', 'sunset_deadline') ?? null,
-    sunsetNotice: wire.optionalString('sunsetNotice', 'sunset_notice') ?? null,
+    sunsetDeadline: wire.optionalString('sunsetDeadline') ?? null,
+    sunsetNotice: wire.optionalString('sunsetNotice') ?? null,
     maskedIdentifier: wire.string('maskedIdentifier', 'masked_identifier'),
     isKmsSealed: wire.boolean('hasEncryptedSecrets', 'has_encrypted_secrets'),
     rebateRateBps: Math.round(rebatePercentage * 100),
     rebatePercentage,
-    clientOrderIdPrefix: wire.optionalString('clientOrderIdPrefix', 'client_order_id_prefix'),
-    headerKey: wire.optionalString('headerKey', 'header_key'),
-    headerValue: wire.optionalString('headerValue', 'header_value'),
+    clientOrderIdPrefix: wire.optionalString('clientOrderIdPrefix'),
+    headerKey: wire.optionalString('headerKey'),
+    headerValue: wire.optionalString('headerValue'),
     payloadParams,
-    payoutAddress: wire.optionalString('payoutAddress', 'payout_address'),
+    payoutAddress: wire.optionalString('payoutAddress'),
     version: wire.number('version'),
     updatedAt: wire.string('updatedAt', 'updated_at'),
     updatedBy: wire.string('updatedBy', 'updated_by'),
@@ -468,13 +513,13 @@ function toTreasuryVault(wire: WireObject): TreasuryVault {
     id: wire.string('id'),
     chain: wire.string('chain'),
     asset: wire.string('asset'),
-    receivingAddress: wire.string('receivingAddress', 'receiving_address'),
-    coldSweepAddress: wire.string('coldSweepAddress', 'cold_sweep_address'),
-    minDepositUsd: wire.number('minDepositUsd', 'min_deposit_usd'),
-    sweepThresholdUsd: wire.number('sweepThresholdUsd', 'sweep_threshold_usd'),
-    currentBalanceUsd: wire.number('currentBalanceUsd', 'current_balance_usd'),
-    isActive: wire.boolean('isActive', 'is_active'),
-    updatedAt: wire.string('updatedAt', 'updated_at'),
+    receivingAddress: wire.string('receivingAddress'),
+    coldSweepAddress: wire.string('coldSweepAddress'),
+    minDepositUsd: wire.number('minDepositUsd'),
+    sweepThresholdUsd: wire.number('sweepThresholdUsd'),
+    currentBalanceUsd: wire.number('currentBalanceUsd'),
+    isActive: wire.boolean('isActive'),
+    updatedAt: wire.string('updatedAt'),
   };
 }
 
@@ -482,65 +527,65 @@ function toAdminUser(wire: WireObject): AdminUser {
   return {
     id: wire.string('id'),
     email: wire.string('email'),
-    role: wire.string('role') as AdminUser['role'],
-    status: wire.string('status') as AdminUser['status'],
-    activeBotsCount: wire.number('activeBotsCount', 'active_bots_count'),
-    totalVolumeUsd: wire.number('totalVolumeUsd', 'total_volume_usd'),
-    createdAt: wire.string('createdAt', 'created_at'),
+    role: wire.oneOf(ADMIN_USER_ROLES, 'role'),
+    status: wire.oneOf(ADMIN_USER_STATUSES, 'status'),
+    activeBotsCount: wire.number('activeBotsCount'),
+    totalVolumeUsd: wire.number('totalVolumeUsd'),
+    createdAt: wire.string('createdAt'),
   };
 }
 
 function toFleetBot(wire: WireObject): FleetBot {
   return {
     id: wire.string('id'),
-    userId: wire.string('userId', 'user_id'),
+    userId: wire.string('userId'),
     label: wire.string('label', 'name'),
     strategy: wire.string('strategy'),
     symbol: wire.string('symbol'),
     exchange: wire.optionalString('exchange') || undefined,
-    status: wire.string('status') as FleetBot['status'],
-    activeOrders: wire.number('activeOrders', 'active_orders'),
-    unrealizedPnlUsd: wire.number('unrealizedPnlUsd', 'unrealized_pnl_usd'),
-    startedAt: wire.string('startedAt', 'started_at'),
+    status: wire.oneOf(FLEET_BOT_STATUSES, 'status'),
+    activeOrders: wire.number('activeOrders'),
+    unrealizedPnlUsd: wire.number('unrealizedPnlUsd'),
+    startedAt: wire.string('startedAt'),
   };
 }
 
 function toDivergentOrder(wire: WireObject): DivergentOrder {
   return {
     id: wire.string('id'),
-    clientOrderId: wire.string('clientOrderId', 'client_order_id'),
-    userId: wire.string('userId', 'user_id'),
-    botId: wire.optionalString('botId', 'bot_id') || undefined,
+    clientOrderId: wire.string('clientOrderId'),
+    userId: wire.string('userId'),
+    botId: wire.optionalString('botId') || undefined,
     symbol: wire.string('symbol'),
     exchange: wire.optionalString('exchange') || undefined,
-    side: wire.string('side') as DivergentOrder['side'],
-    orderType: wire.string('orderType', 'order_type') as DivergentOrder['orderType'],
+    side: wire.oneOf(DIVERGENT_ORDER_SIDES, 'side'),
+    orderType: wire.oneOf(DIVERGENT_ORDER_TYPES, 'orderType'),
     price: wire.string('price'),
     quantity: wire.string('quantity'),
-    localStatus: wire.string('localStatus', 'local_status') as DivergentOrder['localStatus'],
-    exchangeStatus: wire.string('exchangeStatus', 'exchange_status') as DivergentOrder['exchangeStatus'],
-    discrepancyType: wire.string('discrepancyType', 'discrepancy_type') as DivergentOrder['discrepancyType'],
-    lastCheckedAt: wire.string('lastCheckedAt', 'last_checked_at'),
-    createdAt: wire.string('createdAt', 'created_at'),
-    divergenceAgeSeconds: wire.number('divergenceAgeSeconds', 'divergence_age_seconds'),
+    localStatus: wire.oneOf(DIVERGENT_LOCAL_STATUSES, 'localStatus'),
+    exchangeStatus: wire.oneOf(DIVERGENT_EXCHANGE_STATUSES, 'exchangeStatus'),
+    discrepancyType: wire.oneOf(DIVERGENCE_DISCREPANCY_TYPES, 'discrepancyType'),
+    lastCheckedAt: wire.string('lastCheckedAt'),
+    createdAt: wire.string('createdAt'),
+    divergenceAgeSeconds: wire.number('divergenceAgeSeconds'),
   };
 }
 
 function toCompensationClaim(wire: WireObject): CompensationClaim {
   return {
     id: wire.string('id'),
-    incidentId: wire.string('incidentId', 'incident_id'),
-    userId: wire.string('userId', 'user_id'),
-    amountCents: wire.number('amountCents', 'amount_cents'),
+    incidentId: wire.string('incidentId'),
+    userId: wire.string('userId'),
+    amountCents: wire.number('amountCents'),
     reason: wire.string('reason'),
-    evidencePayload: wire.string('evidencePayload', 'evidence_payload'),
-    status: wire.string('status') as CompensationClaim['status'],
-    createdByAdminId: wire.string('createdByAdminId', 'created_by_admin_id'),
-    approvedByAdminId: wire.optionalString('approvedByAdminId', 'approved_by_admin_id') || undefined,
-    rejectionReason: wire.optionalString('rejectionReason', 'rejection_reason') || undefined,
-    createdAt: wire.string('createdAt', 'created_at'),
-    updatedAt: wire.string('updatedAt', 'updated_at'),
-    approvedAt: wire.optionalString('approvedAt', 'approved_at') || undefined,
+    evidencePayload: wire.string('evidencePayload'),
+    status: wire.oneOf(COMPENSATION_CLAIM_STATUSES, 'status'),
+    createdByAdminId: wire.string('createdByAdminId'),
+    approvedByAdminId: wire.optionalString('approvedByAdminId') || undefined,
+    rejectionReason: wire.optionalString('rejectionReason') || undefined,
+    createdAt: wire.string('createdAt'),
+    updatedAt: wire.string('updatedAt'),
+    approvedAt: wire.optionalString('approvedAt') || undefined,
   };
 }
 
@@ -553,14 +598,14 @@ function toPublicExchangeConfig(
   return {
     exchange,
     name: wire.string('name'),
-    portalUrl: wire.string('portalUrl', 'portal_url'),
-    staticNatIps: natEgressIps ?? wire.stringList('staticNatIps', 'static_nat_ips'),
-    isBrokerActive: wire.boolean('allowNewBots', 'isBrokerActive', 'is_broker_active'),
-    lifecycleStatus: wire.string('lifecycleStatus', 'lifecycle_status') as VenueLifecycleStatus,
-    sunsetDeadline: wire.optionalString('sunsetDeadline', 'sunset_deadline') ?? null,
-    sunsetNotice: wire.optionalString('sunsetNotice', 'sunset_notice') ?? null,
-    allowNewKeys: wire.boolean('allowNewKeys', 'allow_new_keys'),
-    allowNewBots: wire.boolean('allowNewBots', 'allow_new_bots'),
+    portalUrl: wire.string('portalUrl'),
+    staticNatIps: natEgressIps ?? wire.stringList('staticNatIps'),
+    isBrokerActive: wire.boolean('allowNewBots', 'isBrokerActive'),
+    lifecycleStatus: wire.oneOf(Object.values(VENUE_LIFECYCLE_STATUS), 'lifecycleStatus'),
+    sunsetDeadline: wire.optionalString('sunsetDeadline') ?? null,
+    sunsetNotice: wire.optionalString('sunsetNotice') ?? null,
+    allowNewKeys: wire.boolean('allowNewKeys'),
+    allowNewBots: wire.boolean('allowNewBots'),
   };
 }
 
@@ -595,13 +640,13 @@ export const adminApi = {
   getSystemStats: async (): Promise<SystemStats> => {
     const wire = WireObject.from(await readJsonOrThrow<unknown>(await adminFetch('/v1/admin/stats')));
     return {
-      activeBotsCount: wire.number('activeBotsCount', 'active_bots_count'),
-      totalVolume24hUsd: wire.number('totalVolume24hUsd', 'total_volume_24h_usd'),
-      pendingSweepUsd: wire.number('pendingSweepUsd', 'pending_sweep_usd'),
-      gatewayStatus: wire.string('gatewayStatus', 'gateway_status') as SystemStats['gatewayStatus'],
-      kafkaLag: wire.number('kafkaLag', 'kafka_lag'),
-      dbConnections: wire.number('dbConnections', 'db_connections'),
-      redisMemoryMb: wire.number('redisMemoryMb', 'redis_memory_mb'),
+      activeBotsCount: wire.number('activeBotsCount'),
+      totalVolume24hUsd: wire.number('totalVolume24hUsd'),
+      pendingSweepUsd: wire.number('pendingSweepUsd'),
+      gatewayStatus: wire.oneOf(GATEWAY_STATUSES, 'gatewayStatus'),
+      kafkaLag: wire.number('kafkaLag'),
+      dbConnections: wire.number('dbConnections'),
+      redisMemoryMb: wire.number('redisMemoryMb'),
     };
   },
 
@@ -642,8 +687,8 @@ export const adminApi = {
     const wire = WireObject.from(await readJsonOrThrow<unknown>(res));
     return {
       success: wire.optionalBoolean('success') === true,
-      sweepId: wire.optionalString('sweepId', 'sweep_id'),
-      txHash: wire.optionalString('txHash', 'tx_hash'),
+      sweepId: wire.optionalString('sweepId'),
+      txHash: wire.optionalString('txHash'),
       message: wire.string('message'),
     };
   },
@@ -882,12 +927,12 @@ export const adminApi = {
       ),
     );
     return {
-      success: wire.optionalBoolean('is_valid') === true,
-      attributedOrderId: wire.optionalString('formatted_client_order_id'),
-      injectedHeaders: wire.optionalStringMap('injected_headers'),
-      injectedParams: wire.optionalStringMap('injected_payload_fields'),
-      statusMessage: wire.optionalString('diagnostic_message'),
-      attributionLatencyNanos: wire.optionalNumber('formatting_latency_nanos'),
+      success: wire.boolean('isValid'),
+      attributedOrderId: wire.optionalString('formattedClientOrderId'),
+      injectedHeaders: wire.optionalStringMap('injectedHeaders'),
+      injectedParams: wire.optionalStringMap('injectedPayloadFields'),
+      statusMessage: wire.optionalString('diagnosticMessage'),
+      attributionLatencyNanos: wire.optionalNumber('formattingLatencyNanos'),
     };
   },
 

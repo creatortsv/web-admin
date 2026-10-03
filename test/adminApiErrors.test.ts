@@ -187,7 +187,7 @@ describe('adminApi resolves only from the backend response', () => {
       'fetch',
       vi.fn(
         async () =>
-          new Response(JSON.stringify({ is_valid: false, diagnostic_message: 'prefix rejected' }), {
+          new Response(JSON.stringify({ isValid: false, diagnosticMessage: 'prefix rejected' }), {
             status: 200,
           }),
       ),

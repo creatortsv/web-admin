@@ -18,7 +18,7 @@ import {
 
 /**
  * The gateway keeps grpc-gateway's default marshaler, which writes proto3 JSON in lowerCamelCase
- * (Standards §4.5). The console accepts only those keys and only the enum values of its contract.
+ * (Standards §4.5). The readers in this file accept only those keys and only the enum values of their contract.
  * [Policy Ref: Standards §4.5 - canonical lowerCamelCase wire; Contract §2.1 - no fake data]
  */
 

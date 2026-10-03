@@ -17,7 +17,15 @@ resolves only from `readJsonOrThrow` (`src/services/adminApiError.ts`):
   `vaults[0].isActive`). The console never invents a value for such a field: there are no
   per-field defaults on the success path, and an absent list is the only value read as empty
   (proto3 omits an empty repeated field). Fields the UI type declares optional stay `undefined`
-  when the backend omits them.
+  when the backend omits them;
+- the readers take the lowerCamelCase keys that grpc-gateway's default marshaler writes
+  (Standards §4.5), and an enum-typed field must carry one of the values of its contract; any
+  other value rejects with `AdminContractError` instead of being cast to the UI type. One
+  exception is open: `parseBrokerConfigWire` still also accepts the snake_case spelling of
+  eight required fields (`is_active`, `rebate_percentage`, `attribution_type`,
+  `lifecycle_status`, `masked_identifier`, `has_encrypted_secrets`, `updated_at`, `updated_by`),
+  because two success-response cases of `test/brokerRebatesGovernance.test.ts` that predate
+  WP-0.8b still send them.
 
 Pages render four states for every backend read: loading (`Skeleton`), error (a
 `@creatortsv/pkg-ui` `Alert` with the HTTP status and reason, for example
@@ -35,8 +43,11 @@ What an operator sees today:
   chain-verification verdict: no backend endpoint provides either yet (audit listings: WP-8.13).
 - `adminApi` keeps no data in browser storage. The only values the console still stores in the
   browser are the admin access token (WP-8.4) and the AI Quant provider settings (WP-9.3).
-- There is no console stop-crane (D-79): the console does not hide or disable actions on its own;
-  the gateway decides.
+- There is no console stop-crane (D-79): the console adds no gate of its own and never hides an
+  action that has a backend operation; the gateway decides. Controls for which the admin API has
+  no operation (a bot stop, a user status or role change) are rendered disabled with an
+  explanation, and preset publication is reported as unavailable, until the routes exist
+  (WP-8.5a, and the preset-publication work package). Nothing is simulated in their place.
 
 ## Network path
 
