@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { AdminApiError, describeAdminError, readJsonOrThrow } from '../src/services/adminApiError';
+import {
+  AdminApiError,
+  AdminContractError,
+  WireObject,
+  describeAdminError,
+  readJsonOrThrow,
+} from '../src/services/adminApiError';
 
 describe('readJsonOrThrow maps the grpc-gateway error body', () => {
   it('resolves with the parsed body on a 2xx response', async () => {
@@ -59,5 +65,47 @@ describe('describeAdminError', () => {
 
   it('never renders an empty text for a non-Error rejection', () => {
     expect(describeAdminError({ unexpected: true }).length).toBeGreaterThan(0);
+  });
+});
+
+describe('AdminContractError and the wire reader', () => {
+  it('renders the field a malformed 2xx body violated', () => {
+    const error = new AdminContractError('vaults[0].isActive', 'boolean');
+    expect(error.field).toBe('vaults[0].isActive');
+    expect(describeAdminError(error)).toContain('vaults[0].isActive');
+    expect(describeAdminError(error)).toContain('boolean');
+  });
+
+  it('reads present values, including falsy ones, without defaulting', () => {
+    const wire = WireObject.from({ a: '', b: 0, c: false, d: '7' }, 'item');
+    expect(wire.string('a')).toBe('');
+    expect(wire.number('b')).toBe(0);
+    expect(wire.boolean('c')).toBe(false);
+    expect(wire.number('d')).toBe(7);
+  });
+
+  it('names the path of a missing or mistyped field and never returns a default', () => {
+    const wire = WireObject.from({ a: 1, n: Number.NaN }, 'item');
+    expect(() => wire.string('a')).toThrow(AdminContractError);
+    expect(() => wire.boolean('missing')).toThrow(/item\.missing/);
+    expect(() => wire.number('n')).toThrow(/item\.n/);
+  });
+
+  it('reads the first present alias and reports the first key when none is present', () => {
+    const wire = WireObject.from({ snake_key: 'x' }, 'item');
+    expect(wire.string('camelKey', 'snake_key')).toBe('x');
+    expect(() => wire.string('other', 'other_snake')).toThrow(/item\.other/);
+  });
+
+  it('keeps optional fields undefined when absent and rejects a wrong type', () => {
+    const wire = WireObject.from({ a: 1 }, 'item');
+    expect(wire.optionalString('missing')).toBeUndefined();
+    expect(() => wire.optionalString('a')).toThrow(AdminContractError);
+  });
+
+  it('treats an absent list as empty (proto3) and rejects a non-list value', () => {
+    expect(WireObject.items({}, 'vaults')).toEqual([]);
+    expect(() => WireObject.items({ vaults: {} }, 'vaults')).toThrow(/vaults/);
+    expect(() => WireObject.items('text', 'vaults')).toThrow(AdminContractError);
   });
 });
