@@ -67,8 +67,8 @@ Monitors order states that have fallen out of sync between Venom's internal stat
 
 - **Bundler Selection**: Both `next dev --webpack -p 3002` and `next build --webpack` use Webpack rather than Turbopack. This completely prevents the Next.js 16 Turbopack inspector/Sentry console wrapper recursion bug that freezes the event loop.
 - **Gateway Rewrites**:
-  - `/v1/treasury/:path*` rewrites to `TREASURY_GATEWAY_URL` (default: `http://localhost:8089/v1/treasury/:path*`).
-  - `/v1/:path*` rewrites to `API_GATEWAY_URL` (default: `http://localhost:8080/v1/:path*`).
+  - `/v1/:path*` rewrites to `API_GATEWAY_URL` (default: `http://localhost:8080/v1/:path*`). This is the only rewrite in `next.config.ts`: every browser request, `/v1/treasury/*` included, reaches `svc-gateway` and its admin route policy. The former direct rewrite of `/v1/treasury/*` to svc-treasury was removed.
+  - There is no server route (`src/app/api/` was removed): the admin app proxies nothing on its own and sends no request to a backend service without passing `svc-gateway`.
 - **Universal SHA-256 Hashing (`src/lib/auditHasher.ts`)**: Built-in pure JavaScript/TypeScript implementation of standard SHA-256 (FIPS 180-4) with zero Node.js polyfill bloat (`crypto-browserify` removed), guaranteeing isomorphic, crash-free execution in client components, server SSR, and edge environments.
 - **SSR-Safe API Client (`src/services/adminApi.ts`)**: `adminFetch` dynamically prepends `http://127.0.0.1:${PORT}` when running under Node.js (`typeof window === 'undefined'`) to prevent `ERR_INVALID_URL` exceptions on relative paths.
 - **Conditional Sentry Initialization**: `sentry.*.config.ts` checks for active DSN before attaching listeners, preventing console wrapper loops during local development.
