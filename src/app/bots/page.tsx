@@ -2,8 +2,15 @@
 
 import * as React from 'react';
 import { adminApi, FleetBot } from '@/services/adminApi';
+import { describeAdminError } from '@/services/adminApiError';
 import { Bot, AlertOctagon, PauseCircle, PlayCircle, ShieldAlert } from 'lucide-react';
-import { InstitutionalEmptyState } from '@creatortsv/pkg-ui';
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+  InstitutionalEmptyState,
+  Skeleton,
+} from '@creatortsv/pkg-ui';
 
 const EXCHANGE_BADGES: Record<string, { bg: string; text: string; border: string; label: string }> = {
   BINANCE: { bg: 'bg-amber-500/10', text: 'text-amber-400', border: 'border-amber-500/30', label: 'Binance' },
@@ -13,28 +20,35 @@ const EXCHANGE_BADGES: Record<string, { bg: string; text: string; border: string
 };
 
 export default function BotsFleetPage() {
-  const [bots, setBots] = React.useState<FleetBot[]>([]);
+  // null while the backend has not answered yet (loading state)
+  const [bots, setBots] = React.useState<FleetBot[] | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
   const [selectedExchange, setSelectedExchange] = React.useState<string>('ALL');
 
   React.useEffect(() => {
-    adminApi.getFleetBots().then(setBots);
+    adminApi
+      .getFleetBots()
+      .then(setBots)
+      .catch((err: unknown) => setError(describeAdminError(err)));
   }, []);
 
   const handleAction = (botId: string, action: 'SOFT_STOP' | 'HARD_STOP') => {
     const isHard = action === 'HARD_STOP';
     if (confirm(`${isHard ? 'EMERGENCY CANCEL ALL ORDERS' : 'SOFT STOP'}: Apply to bot ${botId}?`)) {
       setBots((prev) =>
-        prev.map((b) =>
-          b.id === botId
-            ? { ...b, status: isHard ? 'STOPPED' : 'SOFT_STOPPING' }
-            : b
-        )
+        prev === null
+          ? prev
+          : prev.map((b) =>
+              b.id === botId
+                ? { ...b, status: isHard ? 'STOPPED' : 'SOFT_STOPPING' }
+                : b
+            )
       );
       alert(`Bot ${botId} received command: ${action}`);
     }
   };
 
-  const filteredBots = bots.filter((b) => {
+  const filteredBots = (bots ?? []).filter((b) => {
     if (selectedExchange === 'ALL') return true;
     const ex = (b.exchange || 'BINANCE').toUpperCase();
     return ex === selectedExchange;
@@ -78,7 +92,18 @@ export default function BotsFleetPage() {
         </div>
       </div>
 
-      {filteredBots.length === 0 ? (
+      {error !== null ? (
+        <Alert variant="destructive" className="border-rose-500/40 bg-rose-950/40 text-rose-300">
+          <AlertTitle>Fleet bots could not be loaded</AlertTitle>
+          <AlertDescription className="text-rose-200 font-mono">{error}</AlertDescription>
+        </Alert>
+      ) : bots === null ? (
+        <div className="space-y-3">
+          {[0, 1, 2].map((slot) => (
+            <Skeleton key={slot} className="h-14 rounded-xl" />
+          ))}
+        </div>
+      ) : filteredBots.length === 0 ? (
         <InstitutionalEmptyState
           icon={(props: { className?: string }) => <Bot className={props.className} />}
           badge="SUPERVISOR IDLE"

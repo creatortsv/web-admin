@@ -6,6 +6,14 @@ import {
   UniversalGateway,
   UniversalGatewayConfig,
 } from '@/services/adminApi';
+import { describeAdminError } from '@/services/adminApiError';
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+  InstitutionalEmptyState,
+  Skeleton,
+} from '@creatortsv/pkg-ui';
 import {
   CreditCard,
   Lock,
@@ -23,18 +31,18 @@ import {
 } from 'lucide-react';
 
 export default function PaymentsPage() {
-  const [gateways, setGateways] = React.useState<UniversalGateway[]>([]);
+  // null while the backend has not answered yet (loading state)
+  const [gateways, setGateways] = React.useState<UniversalGateway[] | null>(null);
+  const [gatewaysError, setGatewaysError] = React.useState<string | null>(null);
+  const [configError, setConfigError] = React.useState<string | null>(null);
+  const [actionError, setActionError] = React.useState<string | null>(null);
   const [selectedGateway, setSelectedGateway] = React.useState<string>('stripe');
   const [environment, setEnvironment] = React.useState<'TEST' | 'LIVE'>('TEST');
   const [config, setConfig] = React.useState<UniversalGatewayConfig | null>(null);
 
   const [secretKey, setSecretKey] = React.useState('');
   const [webhookSecret, setWebhookSecret] = React.useState('');
-  const [priceMappings, setPriceMappings] = React.useState<Record<string, string>>({
-    STARTER: 'price_starter_123',
-    PRO: 'price_pro_456',
-    ENTERPRISE: 'price_ent_789',
-  });
+  const [priceMappings, setPriceMappings] = React.useState<Record<string, string>>({});
 
   const [isLoading, setIsLoading] = React.useState(false);
   const [isRotating, setIsRotating] = React.useState(false);
@@ -45,35 +53,37 @@ export default function PaymentsPage() {
 
   // Load gateways
   React.useEffect(() => {
-    adminApi.listUniversalGateways().then((res) => {
-      setGateways(res);
-    });
+    adminApi
+      .listUniversalGateways()
+      .then(setGateways)
+      .catch((err: unknown) => setGatewaysError(describeAdminError(err)));
   }, []);
 
   // Load config when selected gateway or environment changes
   React.useEffect(() => {
     setIsLoading(true);
     setTestResult(null);
+    setConfigError(null);
     adminApi
       .getUniversalGatewayConfig(selectedGateway, environment)
       .then((cfg) => {
         setConfig(cfg);
-        if (cfg.planPriceMappings && Object.keys(cfg.planPriceMappings).length > 0) {
-          setPriceMappings(cfg.planPriceMappings);
-        }
+        setPriceMappings(cfg.planPriceMappings ?? {});
+      })
+      .catch((err: unknown) => {
+        setConfig(null);
+        setConfigError(describeAdminError(err));
       })
       .finally(() => setIsLoading(false));
   }, [selectedGateway, environment]);
 
+  // The toggle changes nothing on screen until the backend has confirmed it.
   const handleToggleGateway = async (gw: UniversalGateway) => {
+    if (!config || config.gatewayName !== gw.name) return;
     const updatedStatus = !gw.isEnabled;
-    setGateways((prev) =>
-      prev.map((g) => (g.name === gw.name ? { ...g, isEnabled: updatedStatus } : g))
-    );
-    if (config && config.gatewayName === gw.name) {
-      const updated = { ...config, isEnabled: updatedStatus };
-      setConfig(updated);
-      await adminApi.updateUniversalGatewayConfig({
+    setActionError(null);
+    try {
+      const res = await adminApi.updateUniversalGatewayConfig({
         gatewayName: gw.name,
         environment,
         isEnabled: updatedStatus,
@@ -81,6 +91,14 @@ export default function PaymentsPage() {
         webhookSecret: '',
         planPriceMappings: priceMappings,
       });
+      setConfig(res.config);
+      setGateways((prev) =>
+        prev === null
+          ? prev
+          : prev.map((g) => (g.name === gw.name ? { ...g, isEnabled: res.config.isEnabled } : g))
+      );
+    } catch (err: unknown) {
+      setActionError(`Gateway ${gw.name} was not updated: ${describeAdminError(err)}`);
     }
   };
 
@@ -109,6 +127,7 @@ export default function PaymentsPage() {
     if (!secretKey.trim()) return;
 
     setIsRotating(true);
+    setActionError(null);
     try {
       const res = await adminApi.updateUniversalGatewayConfig({
         gatewayName: selectedGateway,
@@ -125,8 +144,9 @@ export default function PaymentsPage() {
       setSecretKey('');
       setWebhookSecret('');
       setTimeout(() => setRotateSuccess(false), 4000);
-    } catch (err) {
-      console.error('Failed to rotate credentials:', err);
+    } catch (err: unknown) {
+      setRotateSuccess(false);
+      setActionError(`Credentials were not rotated: ${describeAdminError(err)}`);
     } finally {
       setIsRotating(false);
     }
@@ -181,9 +201,40 @@ export default function PaymentsPage() {
         </div>
       </div>
 
+      {actionError !== null && (
+        <Alert variant="destructive" className="border-rose-500/40 bg-rose-950/40 text-rose-300">
+          <AlertTitle>Payment gateway action failed</AlertTitle>
+          <AlertDescription className="text-rose-200 font-mono">{actionError}</AlertDescription>
+        </Alert>
+      )}
+
+      {gatewaysError !== null && (
+        <Alert variant="destructive" className="border-rose-500/40 bg-rose-950/40 text-rose-300">
+          <AlertTitle>Payment gateways could not be loaded</AlertTitle>
+          <AlertDescription className="text-rose-200 font-mono">{gatewaysError}</AlertDescription>
+        </Alert>
+      )}
+
+      {gatewaysError === null && gateways === null && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          {[0, 1, 2].map((slot) => (
+            <Skeleton key={slot} className="h-24 rounded-xl" />
+          ))}
+        </div>
+      )}
+
+      {gateways !== null && gateways.length === 0 && (
+        <InstitutionalEmptyState
+          icon={(props: { className?: string }) => <CreditCard className={props.className} />}
+          badge="PAYMENT GATEWAYS"
+          title="No Payment Gateways Registered"
+          description="The backend returned no payment gateways."
+        />
+      )}
+
       {/* Provider Switchboard Ribbon */}
       <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        {gateways.map((gw) => {
+        {(gateways ?? []).map((gw) => {
           const isSelected = selectedGateway === gw.name;
           return (
             <button
@@ -223,6 +274,15 @@ export default function PaymentsPage() {
         })}
       </div>
 
+      {configError !== null && (
+        <Alert variant="destructive" className="border-rose-500/40 bg-rose-950/40 text-rose-300">
+          <AlertTitle>Gateway configuration could not be loaded</AlertTitle>
+          <AlertDescription className="text-rose-200 font-mono">{configError}</AlertDescription>
+        </Alert>
+      )}
+
+      {isLoading && configError === null && <Skeleton className="h-10 rounded-xl" />}
+
       {/* Main Configuration Console */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left: Active Gateway State & Test Connection */}
@@ -250,53 +310,55 @@ export default function PaymentsPage() {
               )}
             </div>
 
-            {/* Status Details */}
-            <div className="grid grid-cols-2 gap-4 bg-[#070A12] border border-[#1E293B] rounded-lg p-4 font-mono text-xs">
-              <div>
-                <span className="text-slate-500 block mb-1">State:</span>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const found = gateways.find((g) => g.name === selectedGateway);
-                      if (found) handleToggleGateway(found);
-                    }}
-                    className="cursor-pointer"
-                  >
-                    {config?.isEnabled ? (
-                      <ToggleRight className="h-6 w-6 text-emerald-400" />
-                    ) : (
-                      <ToggleLeft className="h-6 w-6 text-slate-600" />
-                    )}
-                  </button>
-                  <span className={config?.isEnabled ? 'text-emerald-400 font-bold' : 'text-slate-400'}>
-                    {config?.isEnabled ? 'ENABLED' : 'DISABLED'}
+            {/* Status Details: rendered only from a configuration the backend returned */}
+            {config !== null && (
+              <div className="grid grid-cols-2 gap-4 bg-[#070A12] border border-[#1E293B] rounded-lg p-4 font-mono text-xs">
+                <div>
+                  <span className="text-slate-500 block mb-1">State:</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const found = (gateways ?? []).find((g) => g.name === selectedGateway);
+                        if (found) handleToggleGateway(found);
+                      }}
+                      className="cursor-pointer"
+                    >
+                      {config?.isEnabled ? (
+                        <ToggleRight className="h-6 w-6 text-emerald-400" />
+                      ) : (
+                        <ToggleLeft className="h-6 w-6 text-slate-600" />
+                      )}
+                    </button>
+                    <span className={config?.isEnabled ? 'text-emerald-400 font-bold' : 'text-slate-400'}>
+                      {config?.isEnabled ? 'ENABLED' : 'DISABLED'}
+                    </span>
+                  </div>
+                </div>
+
+                <div>
+                  <span className="text-slate-500 block mb-1">KMS Envelope Sealing:</span>
+                  <span className="text-emerald-400 font-bold flex items-center gap-1">
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                    AES-256-GCM / KMS DEK
+                  </span>
+                </div>
+
+                <div>
+                  <span className="text-slate-500 block mb-1">Current Secret Key:</span>
+                  <span className="text-slate-300">
+                    {config?.maskedSecretKey || 'None configured'}
+                  </span>
+                </div>
+
+                <div>
+                  <span className="text-slate-500 block mb-1">Webhook Secret:</span>
+                  <span className="text-slate-300">
+                    {config?.maskedWebhookSecret || 'None configured'}
                   </span>
                 </div>
               </div>
-
-              <div>
-                <span className="text-slate-500 block mb-1">KMS Envelope Sealing:</span>
-                <span className="text-emerald-400 font-bold flex items-center gap-1">
-                  <ShieldCheck className="h-3.5 w-3.5" />
-                  AES-256-GCM / KMS DEK
-                </span>
-              </div>
-
-              <div>
-                <span className="text-slate-500 block mb-1">Current Secret Key:</span>
-                <span className="text-slate-300">
-                  {config?.maskedSecretKey || 'None configured'}
-                </span>
-              </div>
-
-              <div>
-                <span className="text-slate-500 block mb-1">Webhook Secret:</span>
-                <span className="text-slate-300">
-                  {config?.maskedWebhookSecret || 'None configured'}
-                </span>
-              </div>
-            </div>
+            )}
 
             {/* Webhook Endpoint Display */}
             <div>

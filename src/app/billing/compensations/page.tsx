@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { adminApi, CompensationClaim, CreateCompensationClaimPayload } from '@/services/adminApi';
+import { describeAdminError } from '@/services/adminApiError';
 import { useAdminAuthStore } from '@/stores/useAdminAuthStore';
 import {
   Scale,
@@ -17,11 +18,19 @@ import {
   Clock,
   UserCheck,
 } from 'lucide-react';
-import { InstitutionalEmptyState } from '@creatortsv/pkg-ui';
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+  InstitutionalEmptyState,
+  Skeleton,
+} from '@creatortsv/pkg-ui';
 
 export default function CompensationClaimsPage() {
   const { adminEmail } = useAdminAuthStore();
-  const [claims, setClaims] = React.useState<CompensationClaim[]>([]);
+  // null until the backend has answered; stays null after a failed load (error state)
+  const [claims, setClaims] = React.useState<CompensationClaim[] | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState<boolean>(true);
   const [filterStatus, setFilterStatus] = React.useState<string>('ALL');
   const [searchQuery, setSearchQuery] = React.useState<string>('');
@@ -41,11 +50,13 @@ export default function CompensationClaimsPage() {
 
   const fetchClaims = React.useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const data = await adminApi.getCompensationClaims();
       setClaims(data);
-    } catch (err) {
-      console.error('Failed to load compensation claims', err);
+    } catch (err: unknown) {
+      setClaims(null);
+      setLoadError(describeAdminError(err));
     } finally {
       setLoading(false);
     }
@@ -83,8 +94,8 @@ export default function CompensationClaimsPage() {
       setNewAmountUsd('');
       setNewReason('');
       fetchClaims();
-    } catch (err: any) {
-      setActionMessage({ text: `Failed to create claim: ${err.message || err}`, type: 'error' });
+    } catch (err: unknown) {
+      setActionMessage({ text: `Failed to create claim: ${describeAdminError(err)}`, type: 'error' });
     } finally {
       setSubmitting(false);
     }
@@ -107,8 +118,8 @@ export default function CompensationClaimsPage() {
       const res = await adminApi.approveCompensationClaim(claim.id, adminEmail || 'finance-lead-checker');
       setActionMessage({ text: res.message, type: 'success' });
       fetchClaims();
-    } catch (err: any) {
-      setActionMessage({ text: `Approval failed: ${err.message || err}`, type: 'error' });
+    } catch (err: unknown) {
+      setActionMessage({ text: `Approval failed: ${describeAdminError(err)}`, type: 'error' });
     }
   };
 
@@ -128,12 +139,13 @@ export default function CompensationClaimsPage() {
       const res = await adminApi.rejectCompensationClaim(claim.id, adminEmail || 'finance-lead-checker', reason);
       setActionMessage({ text: res.message, type: 'success' });
       fetchClaims();
-    } catch (err: any) {
-      setActionMessage({ text: `Rejection failed: ${err.message || err}`, type: 'error' });
+    } catch (err: unknown) {
+      setActionMessage({ text: `Rejection failed: ${describeAdminError(err)}`, type: 'error' });
     }
   };
 
-  const filteredClaims = claims.filter((c) => {
+  const loadedClaims = claims ?? [];
+  const filteredClaims = loadedClaims.filter((c) => {
     if (filterStatus !== 'ALL' && c.status !== filterStatus) {
       return false;
     }
@@ -149,9 +161,9 @@ export default function CompensationClaimsPage() {
     return true;
   });
 
-  const pendingClaims = claims.filter((c) => c.status === 'PENDING_APPROVAL');
+  const pendingClaims = loadedClaims.filter((c) => c.status === 'PENDING_APPROVAL');
   const pendingTotalCents = pendingClaims.reduce((acc, c) => acc + c.amountCents, 0);
-  const approvedTotalCents = claims.filter((c) => c.status === 'APPROVED').reduce((acc, c) => acc + c.amountCents, 0);
+  const approvedTotalCents = loadedClaims.filter((c) => c.status === 'APPROVED').reduce((acc, c) => acc + c.amountCents, 0);
 
   return (
     <div className="space-y-6 max-w-7xl font-sans">
@@ -213,6 +225,23 @@ export default function CompensationClaimsPage() {
         </div>
       )}
 
+      {loadError !== null && (
+        <Alert variant="destructive" className="border-rose-500/40 bg-rose-950/40 text-rose-300">
+          <AlertTitle>Compensation claims could not be loaded</AlertTitle>
+          <AlertDescription className="text-rose-200 font-mono">{loadError}</AlertDescription>
+        </Alert>
+      )}
+
+      {loadError === null && claims === null && (
+        <div className="space-y-3">
+          {[0, 1, 2].map((slot) => (
+            <Skeleton key={slot} className="h-16 rounded-xl" />
+          ))}
+        </div>
+      )}
+
+      {claims !== null && (
+      <>
       {/* Metrics Row */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="p-4 rounded-xl border border-slate-800/80 bg-[#0D1322]">
@@ -276,9 +305,9 @@ export default function CompensationClaimsPage() {
       {filteredClaims.length === 0 ? (
         <InstitutionalEmptyState
           icon={(props: { className?: string }) => <ShieldCheck className={props.className} />}
-          badge="AUDIT COMPLIANT"
-          title="No Pending Approvals"
-          description="All dual-custody Maker-Checker mutations have been reviewed. No items require 4-Eyes confirmation."
+          badge="COMPENSATION CLAIMS"
+          title="No Compensation Claims"
+          description="The backend returned no compensation claims for the current filter."
           primaryAction={{
             label: 'Create Claim (Maker)',
             onClick: () => setIsModalOpen(true),
@@ -386,6 +415,8 @@ export default function CompensationClaimsPage() {
           </table>
         </div>
       </div>
+      )}
+      </>
       )}
 
       {/* Modal: New Claim (Maker) */}

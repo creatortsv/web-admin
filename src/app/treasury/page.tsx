@@ -2,35 +2,60 @@
 
 import * as React from 'react';
 import { adminApi, TreasuryVault } from '@/services/adminApi';
+import { describeAdminError } from '@/services/adminApiError';
 import { Wallet, Save, ArrowDownToLine, Check, ShieldCheck, AlertTriangle, Landmark } from 'lucide-react';
-import { InstitutionalEmptyState } from '@creatortsv/pkg-ui';
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+  InstitutionalEmptyState,
+  Skeleton,
+} from '@creatortsv/pkg-ui';
 
 export default function TreasuryPage() {
-  const [vaults, setVaults] = React.useState<TreasuryVault[]>([]);
+  // null while the backend has not answered yet (loading state)
+  const [vaults, setVaults] = React.useState<TreasuryVault[] | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [actionError, setActionError] = React.useState<string | null>(null);
   const [editingVault, setEditingVault] = React.useState<TreasuryVault | null>(null);
   const [saveSuccess, setSaveSuccess] = React.useState(false);
 
   React.useEffect(() => {
-    adminApi.getTreasuryVaults().then(setVaults);
+    adminApi
+      .getTreasuryVaults()
+      .then(setVaults)
+      .catch((err: unknown) => setLoadError(describeAdminError(err)));
   }, []);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingVault) return;
 
-    await adminApi.saveTreasuryVault(editingVault);
-    setVaults((prev) => prev.map((v) => (v.id === editingVault.id ? editingVault : v)));
-    setSaveSuccess(true);
-    setTimeout(() => setSaveSuccess(false), 2000);
+    setActionError(null);
+    try {
+      const saved = await adminApi.saveTreasuryVault(editingVault);
+      setVaults((prev) => (prev === null ? prev : prev.map((v) => (v.id === saved.id ? saved : v))));
+      setEditingVault(saved);
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 2000);
+    } catch (err: unknown) {
+      setSaveSuccess(false);
+      setActionError(`Vault configuration was not saved: ${describeAdminError(err)}`);
+    }
   };
 
   const handleTriggerSweep = async (vault: TreasuryVault) => {
     if (confirm(`Trigger automated cold storage sweep for ${vault.chain} (${vault.asset}) to ${vault.coldSweepAddress}?`)) {
+      setActionError(null);
       try {
         const res = await adminApi.triggerSweep(vault.id);
-        alert(res.message || `Cold storage sweep initiated for $${vault.currentBalanceUsd} USD.`);
-      } catch (err: any) {
-        alert(`Failed to trigger sweep: ${err?.message || err}`);
+        if (res.success) {
+          alert(res.message);
+        } else {
+          setActionError(`Sweep was not confirmed by the backend: ${res.message}`);
+        }
+      } catch (err: unknown) {
+        setActionError(`Failed to trigger sweep: ${describeAdminError(err)}`);
       }
     }
   };
@@ -52,7 +77,24 @@ export default function TreasuryPage() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         {/* Vaults List */}
         <div className="lg:col-span-7 space-y-4">
-          {vaults.length === 0 ? (
+          {actionError !== null && (
+            <Alert variant="destructive" className="border-rose-500/40 bg-rose-950/40 text-rose-300">
+              <AlertTitle>Treasury action failed</AlertTitle>
+              <AlertDescription className="text-rose-200 font-mono">{actionError}</AlertDescription>
+            </Alert>
+          )}
+          {loadError !== null ? (
+            <Alert variant="destructive" className="border-rose-500/40 bg-rose-950/40 text-rose-300">
+              <AlertTitle>Treasury vaults could not be loaded</AlertTitle>
+              <AlertDescription className="text-rose-200 font-mono">{loadError}</AlertDescription>
+            </Alert>
+          ) : vaults === null ? (
+            <div className="space-y-3">
+              {[0, 1].map((slot) => (
+                <Skeleton key={slot} className="h-40 rounded-2xl" />
+              ))}
+            </div>
+          ) : vaults.length === 0 ? (
             <InstitutionalEmptyState
               icon={(props: { className?: string }) => <Landmark className={props.className} />}
               badge="COLD STORAGE VAULTS"

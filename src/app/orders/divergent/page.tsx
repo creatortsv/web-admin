@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { adminApi, DivergentOrder } from '@/services/adminApi';
+import { describeAdminError } from '@/services/adminApiError';
 import {
   GitCompare,
   RefreshCw,
@@ -13,7 +14,13 @@ import {
   Clock,
   ShieldAlert,
 } from 'lucide-react';
-import { InstitutionalEmptyState } from '@creatortsv/pkg-ui';
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+  InstitutionalEmptyState,
+  Skeleton,
+} from '@creatortsv/pkg-ui';
 
 const EXCHANGE_BADGES: Record<string, { bg: string; text: string; border: string; label: string }> = {
   BINANCE: { bg: 'bg-amber-500/10', text: 'text-amber-400', border: 'border-amber-500/30', label: 'Binance' },
@@ -23,7 +30,9 @@ const EXCHANGE_BADGES: Record<string, { bg: string; text: string; border: string
 };
 
 export default function DivergentOrdersPage() {
-  const [orders, setOrders] = React.useState<DivergentOrder[]>([]);
+  // null until the backend has answered; stays null after a failed load (error state)
+  const [orders, setOrders] = React.useState<DivergentOrder[] | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState<boolean>(true);
   const [filterType, setFilterType] = React.useState<string>('ALL');
   const [selectedExchange, setSelectedExchange] = React.useState<string>('ALL');
@@ -32,11 +41,13 @@ export default function DivergentOrdersPage() {
 
   const fetchOrders = React.useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const data = await adminApi.getDivergentOrders();
       setOrders(data);
-    } catch (err) {
-      console.error('Failed to load divergent orders', err);
+    } catch (err: unknown) {
+      setOrders(null);
+      setLoadError(describeAdminError(err));
     } finally {
       setLoading(false);
     }
@@ -51,8 +62,8 @@ export default function DivergentOrdersPage() {
       const res = await adminApi.syncDivergentOrder(orderId);
       setActionMessage({ text: res.message, type: 'success' });
       fetchOrders();
-    } catch (err) {
-      setActionMessage({ text: `Sync failed: ${err}`, type: 'error' });
+    } catch (err: unknown) {
+      setActionMessage({ text: `Sync failed: ${describeAdminError(err)}`, type: 'error' });
     }
   };
 
@@ -64,8 +75,8 @@ export default function DivergentOrdersPage() {
       const res = await adminApi.forceCancelDivergentOrder(orderId);
       setActionMessage({ text: res.message, type: 'success' });
       fetchOrders();
-    } catch (err) {
-      setActionMessage({ text: `Cancellation failed: ${err}`, type: 'error' });
+    } catch (err: unknown) {
+      setActionMessage({ text: `Cancellation failed: ${describeAdminError(err)}`, type: 'error' });
     }
   };
 
@@ -77,12 +88,13 @@ export default function DivergentOrdersPage() {
       const res = await adminApi.declareAbandonedOrder(orderId);
       setActionMessage({ text: res.message, type: 'success' });
       fetchOrders();
-    } catch (err) {
-      setActionMessage({ text: `Abandon action failed: ${err}`, type: 'error' });
+    } catch (err: unknown) {
+      setActionMessage({ text: `Abandon action failed: ${describeAdminError(err)}`, type: 'error' });
     }
   };
 
-  const filteredOrders = orders.filter((o) => {
+  const loadedOrders = orders ?? [];
+  const filteredOrders = loadedOrders.filter((o) => {
     if (selectedExchange !== 'ALL') {
       const ex = (o.exchange || 'BINANCE').toUpperCase();
       if (ex !== selectedExchange) return false;
@@ -102,8 +114,8 @@ export default function DivergentOrdersPage() {
     return true;
   });
 
-  const ghostFillsCount = orders.filter((o) => o.discrepancyType === 'GHOST_FILL').length;
-  const inFlightCount = orders.filter((o) => o.localStatus === 'IN_FLIGHT_UNKNOWN').length;
+  const ghostFillsCount = loadedOrders.filter((o) => o.discrepancyType === 'GHOST_FILL').length;
+  const inFlightCount = loadedOrders.filter((o) => o.localStatus === 'IN_FLIGHT_UNKNOWN').length;
 
   return (
     <div className="space-y-6 max-w-7xl font-sans">
@@ -151,8 +163,16 @@ export default function DivergentOrdersPage() {
         </div>
       )}
 
+      {loadError !== null && (
+        <Alert variant="destructive" className="border-rose-500/40 bg-rose-950/40 text-rose-300">
+          <AlertTitle>Divergent orders could not be loaded</AlertTitle>
+          <AlertDescription className="text-rose-200 font-mono">{loadError}</AlertDescription>
+        </Alert>
+      )}
+
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      {orders !== null && (
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="p-4 rounded-xl border border-slate-800/80 bg-[#0D1322]">
           <div className="text-[11px] font-mono text-slate-400 uppercase">Total Divergences</div>
           <div className="text-2xl font-bold font-mono text-white mt-1">{orders.length}</div>
@@ -168,12 +188,8 @@ export default function DivergentOrdersPage() {
           <div className="text-2xl font-bold font-mono text-rose-300 mt-1">{ghostFillsCount}</div>
           <div className="text-[10px] text-rose-400/70 mt-1">Filled on exchange without local fill record</div>
         </div>
-        <div className="p-4 rounded-xl border border-emerald-500/30 bg-emerald-950/10">
-          <div className="text-[11px] font-mono text-emerald-400 uppercase">Multi-Exchange Sweeper</div>
-          <div className="text-2xl font-bold font-mono text-emerald-300 mt-1">ACTIVE</div>
-          <div className="text-[10px] text-emerald-400/70 mt-1">Binance, Bybit, BingX, GMX v2</div>
-        </div>
       </div>
+      )}
 
       {/* Controls Bar */}
       <div className="space-y-3 p-3 rounded-xl border border-slate-800/80 bg-[#0D1322]">
@@ -236,12 +252,18 @@ export default function DivergentOrdersPage() {
       </div>
 
       {/* Orders Table */}
-      {filteredOrders.length === 0 ? (
+      {loadError !== null ? null : orders === null ? (
+        <div className="space-y-3">
+          {[0, 1, 2].map((slot) => (
+            <Skeleton key={slot} className="h-16 rounded-xl" />
+          ))}
+        </div>
+      ) : filteredOrders.length === 0 ? (
         <InstitutionalEmptyState
           icon={(props: { className?: string }) => <CheckCircle2 className={props.className} />}
-          badge="LEDGER RECONCILED"
-          title="Zero Divergent Orders Detected"
-          description="All trading engine in-flight orders match exchange execution reports. No ghost fills, state mismatches, or hanging reservations found."
+          badge="DIVERGENT ORDERS"
+          title="No Divergent Orders Reported"
+          description="The backend returned no divergent orders for the current filters."
         />
       ) : (
         <div className="rounded-xl border border-slate-800/80 bg-[#0D1322] overflow-hidden">

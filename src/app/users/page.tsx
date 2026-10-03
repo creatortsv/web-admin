@@ -2,31 +2,44 @@
 
 import * as React from 'react';
 import { adminApi, AdminUser } from '@/services/adminApi';
+import { describeAdminError } from '@/services/adminApiError';
 import { Users, ShieldAlert, Ban, CheckCircle, Search, UserCheck } from 'lucide-react';
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+  InstitutionalEmptyState,
+  Skeleton,
+} from '@creatortsv/pkg-ui';
 
 export default function UsersPage() {
-  const [users, setUsers] = React.useState<AdminUser[]>([]);
+  // null while the backend has not answered yet (loading state)
+  const [users, setUsers] = React.useState<AdminUser[] | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
   const [search, setSearch] = React.useState('');
 
   React.useEffect(() => {
-    adminApi.getUsers().then(setUsers);
+    adminApi
+      .getUsers()
+      .then(setUsers)
+      .catch((err: unknown) => setError(describeAdminError(err)));
   }, []);
 
   const handleStatusChange = (userId: string, status: 'ACTIVE' | 'SUSPENDED' | 'BANNED') => {
     if (confirm(`Change status of user ${userId} to ${status}?`)) {
       setUsers((prev) =>
-        prev.map((u) => (u.id === userId ? { ...u, status } : u))
+        prev === null ? prev : prev.map((u) => (u.id === userId ? { ...u, status } : u))
       );
     }
   };
 
   const handleRoleChange = (userId: string, role: 'super_admin' | 'admin' | 'trader' | 'sandbox') => {
     setUsers((prev) =>
-      prev.map((u) => (u.id === userId ? { ...u, role } : u))
+      prev === null ? prev : prev.map((u) => (u.id === userId ? { ...u, role } : u))
     );
   };
 
-  const filtered = users.filter((u) =>
+  const filtered = (users ?? []).filter((u) =>
     u.email.toLowerCase().includes(search.toLowerCase()) || u.id.toLowerCase().includes(search.toLowerCase())
   );
 
@@ -57,6 +70,31 @@ export default function UsersPage() {
         </div>
       </div>
 
+      {error !== null && (
+        <Alert variant="destructive" className="border-rose-500/40 bg-rose-950/40 text-rose-300">
+          <AlertTitle>User accounts could not be loaded</AlertTitle>
+          <AlertDescription className="text-rose-200 font-mono">{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {error === null && users === null && (
+        <div className="space-y-3">
+          {[0, 1, 2].map((slot) => (
+            <Skeleton key={slot} className="h-14 rounded-xl" />
+          ))}
+        </div>
+      )}
+
+      {users !== null && users.length === 0 && (
+        <InstitutionalEmptyState
+          icon={(props: { className?: string }) => <Users className={props.className} />}
+          badge="USER ACCOUNTS"
+          title="No Registered User Accounts"
+          description="The backend returned no user accounts."
+        />
+      )}
+
+      {users !== null && users.length > 0 && (
       <div className="glass-card rounded-2xl border-slate-800/80 overflow-hidden shadow-xl">
         <div className="overflow-x-auto">
           <table className="w-full text-left font-mono text-sm">
@@ -74,7 +112,7 @@ export default function UsersPage() {
               {filtered.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="py-12 text-center text-slate-400 font-mono text-xs">
-                    No registered user accounts found. Real-time database cluster is ready for onboarding.
+                    No user account matches the search.
                   </td>
                 </tr>
               ) : (
@@ -150,6 +188,7 @@ export default function UsersPage() {
           </table>
         </div>
       </div>
+      )}
     </div>
   );
 }

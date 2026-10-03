@@ -13,6 +13,14 @@ import {
   VENUE_LIFECYCLE_STATUS,
   TestBrokerAttributionResponse,
 } from '@/services/adminApi';
+import { describeAdminError } from '@/services/adminApiError';
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+  InstitutionalEmptyState,
+  Skeleton,
+} from '@creatortsv/pkg-ui';
 import {
   ShieldCheck,
   Lock,
@@ -274,6 +282,9 @@ const EGRESS_IPS = ['34.118.24.10', '34.118.24.11'];
 export default function BrokerRebatesPage() {
   const { adminEmail } = useAdminAuthStore();
   const [configs, setConfigs] = React.useState<BrokerConfigDTO[]>([]);
+  // loading until the backend answered; a failed load keeps configsLoaded false and sets loadError
+  const [configsLoaded, setConfigsLoaded] = React.useState(false);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const [selectedExchange, setSelectedExchange] = React.useState<ExchangeKey>('EXCHANGE_BINGX');
   const [activeTab, setActiveTab] = React.useState<'CONFIG' | 'TEST' | 'ONBOARDING'>('CONFIG');
 
@@ -314,9 +325,13 @@ export default function BrokerRebatesPage() {
 
   // Load configs on mount
   React.useEffect(() => {
-    adminApi.getBrokerConfigs().then((list) => {
-      setConfigs(list);
-    });
+    adminApi
+      .getBrokerConfigs()
+      .then((list) => {
+        setConfigs(list);
+        setConfigsLoaded(true);
+      })
+      .catch((err: unknown) => setLoadError(describeAdminError(err)));
   }, []);
 
   // Update form fields when selected exchange or configs change
@@ -519,16 +534,13 @@ export default function BrokerRebatesPage() {
       setShowTerminatedModal(true);
       return;
     }
-    setLifecycleStatus(newLifecycle);
     const newStatus: BrokerConfigStatus = BROKER_CONFIG_STATUS.ACTIVE;
-    setStatus(newStatus);
 
     let nextDeadline = sunsetDeadline;
     if (newLifecycle === VENUE_LIFECYCLE_STATUS.SUNSETTING && !sunsetDeadline) {
       const d = new Date();
       d.setDate(d.getDate() + 14);
       nextDeadline = d.toISOString().slice(0, 16);
-      setSunsetDeadline(nextDeadline);
     }
 
     const fallbackPrefix = meta.key === 'EXCHANGE_BINGX'
@@ -572,6 +584,10 @@ export default function BrokerRebatesPage() {
         }
         return [...prev, updated];
       });
+      // The form follows the lifecycle only after the backend confirmed it.
+      setLifecycleStatus(newLifecycle);
+      setStatus(newStatus);
+      setSunsetDeadline(nextDeadline);
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : 'Failed to update lifecycle status');
     }
@@ -686,8 +702,37 @@ export default function BrokerRebatesPage() {
     }
   };
 
+  if (loadError !== null) {
+    return (
+      <div className="p-8 max-w-7xl mx-auto space-y-8">
+        <Alert variant="destructive" className="border-rose-500/40 bg-rose-950/40 text-rose-300">
+          <AlertTitle>Broker configurations could not be loaded</AlertTitle>
+          <AlertDescription className="text-rose-200 font-mono">{loadError}</AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
+
+  if (!configsLoaded) {
+    return (
+      <div className="p-8 max-w-7xl mx-auto space-y-8">
+        <Skeleton className="h-24 rounded-2xl" />
+        <Skeleton className="h-64 rounded-2xl" />
+      </div>
+    );
+  }
+
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8">
+      {configs.length === 0 && (
+        <InstitutionalEmptyState
+          icon={(props: { className?: string }) => <ShieldCheck className={props.className} />}
+          badge="BROKER CONFIGURATIONS"
+          title="No Broker Configuration Stored"
+          description="The backend returned no broker configuration. A venue is configured by sealing its first partner identifier below."
+        />
+      )}
+
       {/* Header Banner */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800/80 pb-6">
         <div>
