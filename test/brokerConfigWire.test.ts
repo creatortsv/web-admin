@@ -242,3 +242,61 @@ describe('source level guards', () => {
     }
   });
 });
+
+/**
+ * The gateway writes proto3 JSON in lowerCamelCase and never sends snake_case (Standards §4.5), so
+ * a broker config field written only in snake_case is a contract violation, not a second spelling.
+ * [Policy Ref: Standards §4.5 - canonical lowerCamelCase wire; Contract §2.1 - no fake data]
+ */
+const SNAKE_CASE_ONLY_BROKER_CONFIG_FIELDS = [
+  ['isActive', 'is_active'],
+  ['rebatePercentage', 'rebate_percentage'],
+  ['attributionType', 'attribution_type'],
+  ['lifecycleStatus', 'lifecycle_status'],
+  ['maskedIdentifier', 'masked_identifier'],
+  ['hasEncryptedSecrets', 'has_encrypted_secrets'],
+  ['updatedAt', 'updated_at'],
+  ['updatedBy', 'updated_by'],
+] as const;
+
+function writtenOnlyAs(field: string, snakeCased: string): Record<string, unknown> {
+  const copy: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(brokerConfigWire)) {
+    copy[key === field ? snakeCased : key] = value;
+  }
+  return copy;
+}
+
+describe('a broker config field written only in snake_case rejects', () => {
+  it.each(SNAKE_CASE_ONLY_BROKER_CONFIG_FIELDS)('getBrokerConfigs rejects %s sent as %s', async (field, snakeCased) => {
+    stubBackendJson({ configs: [writtenOnlyAs(field, snakeCased)] });
+    const error = await rejection(adminApi.getBrokerConfigs());
+    expect(error).toBeInstanceOf(AdminContractError);
+    expect((error as AdminContractError).field).toBe(`configs[0].${field}`);
+  });
+
+  it.each(SNAKE_CASE_ONLY_BROKER_CONFIG_FIELDS)('getBrokerConfig rejects %s sent as %s', async (field, snakeCased) => {
+    stubBackendJson({ config: writtenOnlyAs(field, snakeCased) });
+    const error = await rejection(adminApi.getBrokerConfig('EXCHANGE_BYBIT'));
+    expect(error).toBeInstanceOf(AdminContractError);
+    expect((error as AdminContractError).field).toBe(`config.${field}`);
+  });
+
+  it.each(SNAKE_CASE_ONLY_BROKER_CONFIG_FIELDS)('updateBrokerConfig rejects %s sent as %s', async (field, snakeCased) => {
+    stubBackendJson({ config: writtenOnlyAs(field, snakeCased) });
+    const error = await rejection(adminApi.updateBrokerConfig({ ...updateRequest, notes: 'reason' }));
+    expect(error).toBeInstanceOf(AdminContractError);
+    expect((error as AdminContractError).field).toBe(`config.${field}`);
+  });
+
+  it('rejects a config whose keys are all snake_case', async () => {
+    const allSnakeCase = Object.fromEntries(
+      SNAKE_CASE_ONLY_BROKER_CONFIG_FIELDS.reduce<Array<[string, unknown]>>(
+        (entries, [field, snakeCased]) => [...entries, [snakeCased, brokerConfigWire[field]]],
+        [],
+      ),
+    );
+    stubBackendJson({ configs: [{ ...without(brokerConfigWire, 'isActive'), ...allSnakeCase }] });
+    expect(await rejection(adminApi.getBrokerConfigs())).toBeInstanceOf(AdminContractError);
+  });
+});
