@@ -100,3 +100,46 @@ export function without(fixture: WireFixture, field: string): WireFixture {
   delete copy[field];
   return copy;
 }
+
+/**
+ * A complete `venom.broker_config.v1.BrokerConfig` as grpc-gateway writes it (lowerCamelCase,
+ * every field populated). The values differ from every client-side default on purpose.
+ */
+export const brokerConfigWire: WireFixture = {
+  id: 'cfg-bybit-1',
+  exchange: 'bybit',
+  environment: 'testnet',
+  brokerId: 'partner-id',
+  clientOrderIdPrefix: 'VF-BYB-',
+  attributionType: 'ATTRIBUTION_TYPE_CLIENT_ORDER_ID_PREFIX',
+  headerKey: '',
+  headerValue: '',
+  payloadParams: {},
+  rebatePercentage: 12.5,
+  payoutAddress: '',
+  isActive: true,
+  version: 7,
+  maskedIdentifier: 'par***id',
+  hasEncryptedSecrets: false,
+  createdAt: '2026-09-01T00:00:00Z',
+  updatedAt: '2026-10-02T10:00:00Z',
+  updatedBy: 'admin-42',
+  lifecycleStatus: 'VENUE_LIFECYCLE_STATUS_RESTRICTED_NEW',
+  sunsetDeadline: null,
+  sunsetNotice: '',
+};
+
+/** The fields of the broker config wire object that the console requires (no client default exists). */
+export const REQUIRED_BROKER_CONFIG_FIELDS = [
+  'exchange',
+  'environment',
+  'attributionType',
+  'isActive',
+  'lifecycleStatus',
+  'rebatePercentage',
+  'version',
+  'maskedIdentifier',
+  'hasEncryptedSecrets',
+  'updatedAt',
+  'updatedBy',
+] as const;
