@@ -4,10 +4,10 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import CompensationClaimsPage from '../../src/app/billing/compensations/page';
 import {
   ANSWER_ADMIN_ROUTES_DISABLED,
-  SKELETON_CLASS,
   stubBackendNeverAnswers,
   stubBackendRoutes,
 } from '../support/adminBackend';
+import { SKELETON_CLASS } from '../support/skeleton';
 import { claimWire } from '../support/adminWireFixtures';
 
 describe('compensations page (/v1/billing/admin/compensations)', () => {
@@ -50,15 +50,12 @@ describe('compensations page (/v1/billing/admin/compensations)', () => {
   });
 
   it('compensations empty: the backend empty list shows the empty state and no alert', async () => {
-    stubBackendRoutes({ 'GET /v1/billing/admin/compensations': { status: 200, body: { claims: [] } } });
+    stubBackendRoutes({ 'GET /v1/billing/admin/compensations': { status: 200, body: {} } });
 
     const { container } = render(<CompensationClaimsPage />);
     await screen.findByText('No Compensation Claims');
 
-    expect({
-      emptyState: container.innerHTML.includes('No Compensation Claims'),
-      alerts: screen.queryAllByRole('alert').length,
-    }).toStrictEqual({ emptyState: true, alerts: 0 });
+    expect({ alerts: screen.queryAllByRole('alert').length }).toStrictEqual({ alerts: 0 });
   });
 
   it('compensations data: the fixture is rendered without an empty state and without an alert', async () => {
@@ -68,10 +65,9 @@ describe('compensations page (/v1/billing/admin/compensations)', () => {
     await screen.findByText('slippage');
 
     expect({
-      data: container.innerHTML.includes('slippage'),
       emptyState: container.innerHTML.includes('No Compensation Claims'),
       alerts: screen.queryAllByRole('alert').length,
-    }).toStrictEqual({ data: true, emptyState: false, alerts: 0 });
+    }).toStrictEqual({ emptyState: false, alerts: 0 });
   });
 
   it('compensations rejected approval: 403 admin_routes_disabled is shown, no success text and no storage write', async () => {
@@ -85,16 +81,25 @@ describe('compensations page (/v1/billing/admin/compensations)', () => {
       'POST /v1/billing/admin/compensations/claim-1/approve': ANSWER_ADMIN_ROUTES_DISABLED,
     });
 
-    const { container } = render(<CompensationClaimsPage />);
+    render(<CompensationClaimsPage />);
     fireEvent.click(await screen.findByRole('button', { name: 'Approve' }));
-    await screen.findByText('Approval failed: 403 admin_routes_disabled');
+    const banner = await screen.findByText('Approval failed: 403 admin_routes_disabled');
 
     expect({
-      failureText: container.innerHTML.includes('Approval failed: 403 admin_routes_disabled'),
+      failureText: banner.textContent,
+      errorVariant: banner.closest('[class*="text-rose-300"]') !== null,
+      successVariant: banner.closest('[class*="text-emerald-300"]') !== null,
       requests: fetchMock.mock.calls.length,
       localStorageLength: localStorage.length,
       setItemCalls: setItem.mock.calls.length,
-    }).toStrictEqual({ failureText: true, requests: 2, localStorageLength: 0, setItemCalls: 0 });
+    }).toStrictEqual({
+      failureText: 'Approval failed: 403 admin_routes_disabled',
+      errorVariant: true,
+      successVariant: false,
+      requests: 2,
+      localStorageLength: 0,
+      setItemCalls: 0,
+    });
   });
 
   it('compensations rejected rejection: 403 admin_routes_disabled is shown, no success text and no storage write', async () => {
@@ -108,16 +113,25 @@ describe('compensations page (/v1/billing/admin/compensations)', () => {
       'POST /v1/billing/admin/compensations/claim-1/reject': ANSWER_ADMIN_ROUTES_DISABLED,
     });
 
-    const { container } = render(<CompensationClaimsPage />);
+    render(<CompensationClaimsPage />);
     fireEvent.click(await screen.findByRole('button', { name: 'Reject' }));
-    await screen.findByText('Rejection failed: 403 admin_routes_disabled');
+    const banner = await screen.findByText('Rejection failed: 403 admin_routes_disabled');
 
     expect({
-      failureText: container.innerHTML.includes('Rejection failed: 403 admin_routes_disabled'),
+      failureText: banner.textContent,
+      errorVariant: banner.closest('[class*="text-rose-300"]') !== null,
+      successVariant: banner.closest('[class*="text-emerald-300"]') !== null,
       requests: fetchMock.mock.calls.length,
       localStorageLength: localStorage.length,
       setItemCalls: setItem.mock.calls.length,
-    }).toStrictEqual({ failureText: true, requests: 2, localStorageLength: 0, setItemCalls: 0 });
+    }).toStrictEqual({
+      failureText: 'Rejection failed: 403 admin_routes_disabled',
+      errorVariant: true,
+      successVariant: false,
+      requests: 2,
+      localStorageLength: 0,
+      setItemCalls: 0,
+    });
   });
 
   it('compensations rejected claim creation: 403 admin_routes_disabled is shown, no success text and no storage write', async () => {
@@ -136,16 +150,20 @@ describe('compensations page (/v1/billing/admin/compensations)', () => {
       target: { value: 'some reason' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Submit Claim' }));
-    await screen.findByText('Failed to create claim: 403 admin_routes_disabled');
+    const banner = await screen.findByText('Failed to create claim: 403 admin_routes_disabled');
 
     expect({
-      failureText: container.innerHTML.includes('Failed to create claim: 403 admin_routes_disabled'),
+      failureText: banner.textContent,
+      errorVariant: banner.closest('[class*="text-rose-300"]') !== null,
+      successVariant: banner.closest('[class*="text-emerald-300"]') !== null,
       successText: container.innerHTML.includes('registered for Checker review'),
       requests: fetchMock.mock.calls.length,
       localStorageLength: localStorage.length,
       setItemCalls: setItem.mock.calls.length,
     }).toStrictEqual({
-      failureText: true,
+      failureText: 'Failed to create claim: 403 admin_routes_disabled',
+      errorVariant: true,
+      successVariant: false,
       successText: false,
       requests: 2,
       localStorageLength: 0,

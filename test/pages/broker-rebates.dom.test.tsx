@@ -4,10 +4,10 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import BrokerRebatesPage from '../../src/app/settings/broker-rebates/page';
 import {
   ANSWER_ADMIN_ROUTES_DISABLED,
-  SKELETON_CLASS,
   stubBackendNeverAnswers,
   stubBackendRoutes,
 } from '../support/adminBackend';
+import { SKELETON_CLASS } from '../support/skeleton';
 import { brokerConfigWire } from '../support/adminWireFixtures';
 
 describe('broker rebates page (/v1/admin/broker-configs)', () => {
@@ -51,16 +51,13 @@ describe('broker rebates page (/v1/admin/broker-configs)', () => {
 
   it('broker rebates empty: the backend empty list shows the empty state and no alert', async () => {
     stubBackendRoutes({
-      'GET /v1/admin/broker-configs?include_inactive=true': { status: 200, body: { configs: [] } },
+      'GET /v1/admin/broker-configs?include_inactive=true': { status: 200, body: {} },
     });
 
     const { container } = render(<BrokerRebatesPage />);
     await screen.findByText('No Broker Configuration Stored');
 
-    expect({
-      emptyState: container.innerHTML.includes('No Broker Configuration Stored'),
-      alerts: screen.queryAllByRole('alert').length,
-    }).toStrictEqual({ emptyState: true, alerts: 0 });
+    expect({ alerts: screen.queryAllByRole('alert').length }).toStrictEqual({ alerts: 0 });
   });
 
   it('broker rebates data: the stored configuration is rendered without an empty state and an alert', async () => {
@@ -72,10 +69,9 @@ describe('broker rebates page (/v1/admin/broker-configs)', () => {
     await screen.findByText('12.5% Rebate');
 
     expect({
-      data: container.innerHTML.includes('12.5% Rebate'),
       emptyState: container.innerHTML.includes('No Broker Configuration Stored'),
       alerts: screen.queryAllByRole('alert').length,
-    }).toStrictEqual({ data: true, emptyState: false, alerts: 0 });
+    }).toStrictEqual({ emptyState: false, alerts: 0 });
   });
 
   it('broker rebates rejected lifecycle change: 403 admin_routes_disabled is shown and no storage write', async () => {
@@ -94,10 +90,14 @@ describe('broker rebates page (/v1/admin/broker-configs)', () => {
 
     expect({
       alertMessages: alertDialog.mock.calls.map((call) => call[0]),
+      activeStageHighlighted: screen.getByRole('button', { name: 'ACTIVE' }).className.includes('bg-emerald-500/20'),
+      restrictedStageHighlighted: screen.getByRole('button', { name: 'RESTRICTED' }).className.includes('bg-amber-500/20'),
       localStorageLength: localStorage.length,
       setItemCalls: setItem.mock.calls.length,
     }).toStrictEqual({
       alertMessages: ['403 admin_routes_disabled'],
+      activeStageHighlighted: true,
+      restrictedStageHighlighted: false,
       localStorageLength: 0,
       setItemCalls: 0,
     });
@@ -238,14 +238,20 @@ describe('broker rebates page (/v1/admin/broker-configs)', () => {
 
     render(<BrokerRebatesPage />);
     await screen.findByText('12.5% Rebate');
-    fireEvent.click(screen.getByRole('button', { name: /Attribution Dry-Run|Dry-Run Testing|Dry-Run/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Live Attribution Dry-Run' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Execute Dry-Run Ping' }));
     await waitFor(() => expect(alertDialog).toHaveBeenCalled());
 
     expect({
       alertMessages: alertDialog.mock.calls.map((call) => call[0]),
+      resultPanel: screen.queryByText('Attributed Client Order ID') !== null,
       localStorageLength: localStorage.length,
       setItemCalls: setItem.mock.calls.length,
-    }).toStrictEqual({ alertMessages: ['403 admin_routes_disabled'], localStorageLength: 0, setItemCalls: 0 });
+    }).toStrictEqual({
+      alertMessages: ['403 admin_routes_disabled'],
+      resultPanel: false,
+      localStorageLength: 0,
+      setItemCalls: 0,
+    });
   });
 });

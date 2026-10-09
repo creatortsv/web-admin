@@ -1,7 +1,4 @@
 import { expect, vi } from 'vitest';
-import { createElement } from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
-import { Skeleton } from '@creatortsv/pkg-ui';
 import { AdminApiError } from '../../src/services/adminApiError';
 import { STORAGE_KEYS } from '../../src/lib/constants/storage';
 
@@ -92,9 +89,6 @@ export function expectNoDataStorageAccess(ops: StorageOperations): void {
   expect(ops.reads.filter((key) => key !== STORAGE_KEYS.ADMIN_ACCESS_TOKEN)).toEqual([]);
 }
 
-/** The first class of the pkg-ui `Skeleton`, the marker of a loading frame (as `pagesInitialState.test.tsx`). */
-export const SKELETON_CLASS: string = /class="([^"]+)"/.exec(renderToStaticMarkup(createElement(Skeleton)))![1].split(' ')[0];
-
 /** A grpc-gateway answer of a stubbed route. */
 export interface StubbedAnswer {
   readonly status: number;
@@ -134,26 +128,36 @@ export function stubBackendRoutes(routes: Record<string, StubbedAnswer>) {
   return fetchMock;
 }
 
-/** `venom.billing.v1` gateway list entry and configuration as grpc-gateway writes them. */
+/**
+ * `venom.billing.v1.PaymentGateway` and `PaymentGatewayConfig` as grpc-gateway writes them
+ * (proto-definitions/venom/billing/v1/billing.proto): `type` FIAT_CARD, `environment` "test",
+ * `status` ACTIVE, every proto field populated.
+ */
 export const universalGatewayWire = {
   name: 'stripe',
   displayName: 'Stripe',
-  type: 'card',
+  type: 'FIAT_CARD',
   isEnabled: true,
-  environment: 'TEST',
+  environment: 'test',
+  publicKey: 'pk_test_some',
 };
 
 export const universalGatewayConfigWire = {
+  id: 'gateway-config-1',
   gatewayName: 'stripe',
   displayName: 'Stripe',
-  type: 'card',
+  type: 'FIAT_CARD',
   isEnabled: true,
-  environment: 'TEST',
+  environment: 'test',
   version: 3,
-  status: 'CONFIGURED',
-  isSealed: true,
+  status: 'ACTIVE',
+  publicKey: 'pk_test_some',
   maskedSecretKey: 'sk_test_***1234',
   maskedWebhookSecret: 'whsec_***5678',
+  isSealed: true,
   planPriceMappings: { STARTER: 'price_starter', PRO: 'price_pro', ENTERPRISE: 'price_enterprise' },
   webhookUrl: '/v1/billing/webhooks/stripe',
+  metadata: {},
+  updatedAt: '2026-10-01T00:00:00Z',
+  retiredAt: '',
 };

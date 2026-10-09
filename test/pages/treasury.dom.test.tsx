@@ -4,10 +4,10 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import TreasuryPage from '../../src/app/treasury/page';
 import {
   ANSWER_ADMIN_ROUTES_DISABLED,
-  SKELETON_CLASS,
   stubBackendNeverAnswers,
   stubBackendRoutes,
 } from '../support/adminBackend';
+import { SKELETON_CLASS } from '../support/skeleton';
 import { vaultWire } from '../support/adminWireFixtures';
 
 describe('treasury page (/v1/treasury/admin/vaults)', () => {
@@ -50,15 +50,12 @@ describe('treasury page (/v1/treasury/admin/vaults)', () => {
   });
 
   it('treasury empty: the backend empty list shows the empty state and no alert', async () => {
-    stubBackendRoutes({ 'GET /v1/treasury/admin/vaults': { status: 200, body: { vaults: [] } } });
+    stubBackendRoutes({ 'GET /v1/treasury/admin/vaults': { status: 200, body: {} } });
 
     const { container } = render(<TreasuryPage />);
     await screen.findByText('No Treasury Vaults Configured');
 
-    expect({
-      emptyState: container.innerHTML.includes('No Treasury Vaults Configured'),
-      alerts: screen.queryAllByRole('alert').length,
-    }).toStrictEqual({ emptyState: true, alerts: 0 });
+    expect({ alerts: screen.queryAllByRole('alert').length }).toStrictEqual({ alerts: 0 });
   });
 
   it('treasury data: the fixture is rendered without an empty state and without an alert', async () => {
@@ -68,10 +65,9 @@ describe('treasury page (/v1/treasury/admin/vaults)', () => {
     await screen.findByText('receiving-address');
 
     expect({
-      data: container.innerHTML.includes('receiving-address'),
       emptyState: container.innerHTML.includes('No Treasury Vaults Configured'),
       alerts: screen.queryAllByRole('alert').length,
-    }).toStrictEqual({ data: true, emptyState: false, alerts: 0 });
+    }).toStrictEqual({ emptyState: false, alerts: 0 });
   });
 
   it('treasury rejected save: 403 admin_routes_disabled is shown, no success text and no storage write', async () => {

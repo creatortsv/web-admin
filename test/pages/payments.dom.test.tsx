@@ -1,15 +1,15 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import PaymentsPage from '../../src/app/payments/page';
 import {
   ANSWER_ADMIN_ROUTES_DISABLED,
-  SKELETON_CLASS,
   stubBackendNeverAnswers,
   stubBackendRoutes,
   universalGatewayConfigWire,
   universalGatewayWire,
 } from '../support/adminBackend';
+import { SKELETON_CLASS } from '../support/skeleton';
 
 describe('payments page (/v1/billing/gateways)', () => {
   afterEach(() => {
@@ -58,7 +58,7 @@ describe('payments page (/v1/billing/gateways)', () => {
 
   it('payments empty: the backend empty list shows the empty state and no alert', async () => {
     stubBackendRoutes({
-      'GET /v1/billing/gateways': { status: 200, body: { gateways: [] } },
+      'GET /v1/billing/gateways': { status: 200, body: {} },
       'GET /v1/billing/gateways/stripe/config?environment=TEST': {
         status: 200,
         body: { config: universalGatewayConfigWire },
@@ -68,10 +68,7 @@ describe('payments page (/v1/billing/gateways)', () => {
     const { container } = render(<PaymentsPage />);
     await screen.findByText('No Payment Gateways Registered');
 
-    expect({
-      emptyState: container.innerHTML.includes('No Payment Gateways Registered'),
-      alerts: screen.queryAllByRole('alert').length,
-    }).toStrictEqual({ emptyState: true, alerts: 0 });
+    expect({ alerts: screen.queryAllByRole('alert').length }).toStrictEqual({ alerts: 0 });
   });
 
   it('payments data: the gateway and its configuration are rendered without an alert', async () => {
@@ -88,10 +85,9 @@ describe('payments page (/v1/billing/gateways)', () => {
 
     expect({
       gateway: container.innerHTML.includes('Stripe'),
-      maskedSecretKey: container.innerHTML.includes('sk_test_***1234'),
       emptyState: container.innerHTML.includes('No Payment Gateways Registered'),
       alerts: screen.queryAllByRole('alert').length,
-    }).toStrictEqual({ gateway: true, maskedSecretKey: true, emptyState: false, alerts: 0 });
+    }).toStrictEqual({ gateway: true, emptyState: false, alerts: 0 });
   });
 
   it('payments rejected gateway toggle: 403 admin_routes_disabled is shown and no storage write', async () => {
@@ -107,8 +103,9 @@ describe('payments page (/v1/billing/gateways)', () => {
 
     const { container } = render(<PaymentsPage />);
     await screen.findByText('ON');
-    const toggle = (await screen.findByText('ENABLED')).previousElementSibling!;
-    fireEvent.click(toggle);
+    // The toggle is an icon-only button without an accessible name: it is the only button of its state row.
+    const stateRow = (await screen.findByText('ENABLED')).parentElement as HTMLElement;
+    fireEvent.click(within(stateRow).getByRole('button'));
     await screen.findByRole('alert');
 
     expect({
@@ -172,8 +169,16 @@ describe('payments page (/v1/billing/gateways)', () => {
 
     expect({
       failureText: failure.textContent,
+      errorVariant: failure.closest('[class*="text-rose-300"]') !== null,
+      successVariant: failure.closest('[class*="text-emerald-300"]') !== null,
       localStorageLength: localStorage.length,
       setItemCalls: setItem.mock.calls.length,
-    }).toStrictEqual({ failureText: '403 admin_routes_disabled', localStorageLength: 0, setItemCalls: 0 });
+    }).toStrictEqual({
+      failureText: '403 admin_routes_disabled',
+      errorVariant: true,
+      successVariant: false,
+      localStorageLength: 0,
+      setItemCalls: 0,
+    });
   });
 });

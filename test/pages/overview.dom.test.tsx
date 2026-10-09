@@ -4,10 +4,10 @@ import { render, screen } from '@testing-library/react';
 import OverviewPage from '../../src/app/page';
 import {
   ANSWER_ADMIN_ROUTES_DISABLED,
-  SKELETON_CLASS,
   stubBackendNeverAnswers,
   stubBackendRoutes,
 } from '../support/adminBackend';
+import { SKELETON_CLASS } from '../support/skeleton';
 import { statsWire } from '../support/adminWireFixtures';
 
 describe('overview page (/v1/admin/stats)', () => {
@@ -44,9 +44,9 @@ describe('overview page (/v1/admin/stats)', () => {
     });
   });
 
-  // The overview has no list: its only empty state is the permanent service-health notice, which
-  // the page shows whatever the stats answer is (there is no backend empty answer to map to it).
-  it('overview empty: the permanent service-health notice is shown without an alert', async () => {
+  // The overview has no backend-empty state: its only InstitutionalEmptyState is the permanent
+  // service-health notice. This case proves that notice is shown next to answered stats, no more.
+  it('overview service-health notice: shown with an answered stats response and no alert', async () => {
     stubBackendRoutes({ 'GET /v1/admin/stats': { status: 200, body: statsWire } });
 
     const { container } = render(<OverviewPage />);
@@ -65,10 +65,9 @@ describe('overview page (/v1/admin/stats)', () => {
     await screen.findByText('$1,500.5');
 
     expect({
-      volume: container.innerHTML.includes('$1,500.5'),
       pendingSweep: container.innerHTML.includes('$20'),
       kafkaLag: container.innerHTML.includes('0 msgs'),
       alerts: screen.queryAllByRole('alert').length,
-    }).toStrictEqual({ volume: true, pendingSweep: true, kafkaLag: true, alerts: 0 });
+    }).toStrictEqual({ pendingSweep: true, kafkaLag: true, alerts: 0 });
   });
 });

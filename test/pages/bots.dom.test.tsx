@@ -4,10 +4,10 @@ import { render, screen } from '@testing-library/react';
 import BotsFleetPage from '../../src/app/bots/page';
 import {
   ANSWER_ADMIN_ROUTES_DISABLED,
-  SKELETON_CLASS,
   stubBackendNeverAnswers,
   stubBackendRoutes,
 } from '../support/adminBackend';
+import { SKELETON_CLASS } from '../support/skeleton';
 import { botWire } from '../support/adminWireFixtures';
 
 describe('bots page (/v1/admin/bots)', () => {
@@ -48,15 +48,12 @@ describe('bots page (/v1/admin/bots)', () => {
   });
 
   it('bots empty: the backend empty list shows the empty state and no alert', async () => {
-    stubBackendRoutes({ 'GET /v1/admin/bots': { status: 200, body: { bots: [] } } });
+    stubBackendRoutes({ 'GET /v1/admin/bots': { status: 200, body: {} } });
 
     const { container } = render(<BotsFleetPage />);
     await screen.findByText('No Active Cluster Bots');
 
-    expect({
-      emptyState: container.innerHTML.includes('No Active Cluster Bots'),
-      alerts: screen.queryAllByRole('alert').length,
-    }).toStrictEqual({ emptyState: true, alerts: 0 });
+    expect({ alerts: screen.queryAllByRole('alert').length }).toStrictEqual({ alerts: 0 });
   });
 
   it('bots data: the fixture is rendered without an empty state and without an alert', async () => {
@@ -66,9 +63,8 @@ describe('bots page (/v1/admin/bots)', () => {
     await screen.findByText('BTCUSDT');
 
     expect({
-      data: container.innerHTML.includes('BTCUSDT'),
       emptyState: container.innerHTML.includes('No Active Cluster Bots'),
       alerts: screen.queryAllByRole('alert').length,
-    }).toStrictEqual({ data: true, emptyState: false, alerts: 0 });
+    }).toStrictEqual({ emptyState: false, alerts: 0 });
   });
 });

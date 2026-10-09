@@ -4,10 +4,10 @@ import { render, screen } from '@testing-library/react';
 import UsersPage from '../../src/app/users/page';
 import {
   ANSWER_ADMIN_ROUTES_DISABLED,
-  SKELETON_CLASS,
   stubBackendNeverAnswers,
   stubBackendRoutes,
 } from '../support/adminBackend';
+import { SKELETON_CLASS } from '../support/skeleton';
 import { userWire } from '../support/adminWireFixtures';
 
 describe('users page (/v1/admin/users)', () => {
@@ -48,15 +48,12 @@ describe('users page (/v1/admin/users)', () => {
   });
 
   it('users empty: the backend empty list shows the empty state and no alert', async () => {
-    stubBackendRoutes({ 'GET /v1/admin/users': { status: 200, body: { users: [] } } });
+    stubBackendRoutes({ 'GET /v1/admin/users': { status: 200, body: {} } });
 
     const { container } = render(<UsersPage />);
     await screen.findByText('No Registered User Accounts');
 
-    expect({
-      emptyState: container.innerHTML.includes('No Registered User Accounts'),
-      alerts: screen.queryAllByRole('alert').length,
-    }).toStrictEqual({ emptyState: true, alerts: 0 });
+    expect({ alerts: screen.queryAllByRole('alert').length }).toStrictEqual({ alerts: 0 });
   });
 
   it('users data: the fixture is rendered without an empty state and without an alert', async () => {
@@ -66,9 +63,8 @@ describe('users page (/v1/admin/users)', () => {
     await screen.findByText('user@example.test');
 
     expect({
-      data: container.innerHTML.includes('user@example.test'),
       emptyState: container.innerHTML.includes('No Registered User Accounts'),
       alerts: screen.queryAllByRole('alert').length,
-    }).toStrictEqual({ data: true, emptyState: false, alerts: 0 });
+    }).toStrictEqual({ emptyState: false, alerts: 0 });
   });
 });

@@ -4,10 +4,10 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import DivergentOrdersPage from '../../src/app/orders/divergent/page';
 import {
   ANSWER_ADMIN_ROUTES_DISABLED,
-  SKELETON_CLASS,
   stubBackendNeverAnswers,
   stubBackendRoutes,
 } from '../support/adminBackend';
+import { SKELETON_CLASS } from '../support/skeleton';
 import { orderWire } from '../support/adminWireFixtures';
 
 describe('divergent orders page (/v1/trading/admin/divergent-orders)', () => {
@@ -50,15 +50,12 @@ describe('divergent orders page (/v1/trading/admin/divergent-orders)', () => {
   });
 
   it('divergent orders empty: the backend empty list shows the empty state and no alert', async () => {
-    stubBackendRoutes({ 'GET /v1/trading/admin/divergent-orders': { status: 200, body: { orders: [] } } });
+    stubBackendRoutes({ 'GET /v1/trading/admin/divergent-orders': { status: 200, body: {} } });
 
     const { container } = render(<DivergentOrdersPage />);
     await screen.findByText('No Divergent Orders Reported');
 
-    expect({
-      emptyState: container.innerHTML.includes('No Divergent Orders Reported'),
-      alerts: screen.queryAllByRole('alert').length,
-    }).toStrictEqual({ emptyState: true, alerts: 0 });
+    expect({ alerts: screen.queryAllByRole('alert').length }).toStrictEqual({ alerts: 0 });
   });
 
   it('divergent orders data: the fixture is rendered without an empty state and without an alert', async () => {
@@ -68,10 +65,9 @@ describe('divergent orders page (/v1/trading/admin/divergent-orders)', () => {
     await screen.findByText('client-1');
 
     expect({
-      data: container.innerHTML.includes('client-1'),
       emptyState: container.innerHTML.includes('No Divergent Orders Reported'),
       alerts: screen.queryAllByRole('alert').length,
-    }).toStrictEqual({ data: true, emptyState: false, alerts: 0 });
+    }).toStrictEqual({ emptyState: false, alerts: 0 });
   });
 
   it('divergent orders rejected sync: 403 admin_routes_disabled is shown, no refetch and no storage write', async () => {
@@ -82,16 +78,25 @@ describe('divergent orders page (/v1/trading/admin/divergent-orders)', () => {
       'POST /v1/trading/admin/divergent-orders/ord-1/sync': ANSWER_ADMIN_ROUTES_DISABLED,
     });
 
-    const { container } = render(<DivergentOrdersPage />);
+    render(<DivergentOrdersPage />);
     fireEvent.click(await screen.findByRole('button', { name: 'Query & Sync' }));
-    await screen.findByText('Sync failed: 403 admin_routes_disabled');
+    const banner = await screen.findByText('Sync failed: 403 admin_routes_disabled');
 
     expect({
-      failureText: container.innerHTML.includes('Sync failed: 403 admin_routes_disabled'),
+      failureText: banner.textContent,
+      errorVariant: banner.closest('[class*="text-rose-300"]') !== null,
+      successVariant: banner.closest('[class*="text-emerald-300"]') !== null,
       requests: fetchMock.mock.calls.length,
       localStorageLength: localStorage.length,
       setItemCalls: setItem.mock.calls.length,
-    }).toStrictEqual({ failureText: true, requests: 2, localStorageLength: 0, setItemCalls: 0 });
+    }).toStrictEqual({
+      failureText: 'Sync failed: 403 admin_routes_disabled',
+      errorVariant: true,
+      successVariant: false,
+      requests: 2,
+      localStorageLength: 0,
+      setItemCalls: 0,
+    });
   });
 
   it('divergent orders rejected force cancel: 403 admin_routes_disabled is shown, no refetch and no storage write', async () => {
@@ -102,16 +107,25 @@ describe('divergent orders page (/v1/trading/admin/divergent-orders)', () => {
       'POST /v1/trading/admin/divergent-orders/ord-1/cancel': ANSWER_ADMIN_ROUTES_DISABLED,
     });
 
-    const { container } = render(<DivergentOrdersPage />);
+    render(<DivergentOrdersPage />);
     fireEvent.click(await screen.findByRole('button', { name: 'Force Cancel' }));
-    await screen.findByText('Cancellation failed: 403 admin_routes_disabled');
+    const banner = await screen.findByText('Cancellation failed: 403 admin_routes_disabled');
 
     expect({
-      failureText: container.innerHTML.includes('Cancellation failed: 403 admin_routes_disabled'),
+      failureText: banner.textContent,
+      errorVariant: banner.closest('[class*="text-rose-300"]') !== null,
+      successVariant: banner.closest('[class*="text-emerald-300"]') !== null,
       requests: fetchMock.mock.calls.length,
       localStorageLength: localStorage.length,
       setItemCalls: setItem.mock.calls.length,
-    }).toStrictEqual({ failureText: true, requests: 2, localStorageLength: 0, setItemCalls: 0 });
+    }).toStrictEqual({
+      failureText: 'Cancellation failed: 403 admin_routes_disabled',
+      errorVariant: true,
+      successVariant: false,
+      requests: 2,
+      localStorageLength: 0,
+      setItemCalls: 0,
+    });
   });
 
   it('divergent orders rejected abandon: 403 admin_routes_disabled is shown, no refetch and no storage write', async () => {
@@ -122,15 +136,24 @@ describe('divergent orders page (/v1/trading/admin/divergent-orders)', () => {
       'POST /v1/trading/admin/divergent-orders/ord-1/abandon': ANSWER_ADMIN_ROUTES_DISABLED,
     });
 
-    const { container } = render(<DivergentOrdersPage />);
+    render(<DivergentOrdersPage />);
     fireEvent.click(await screen.findByRole('button', { name: 'Abandon' }));
-    await screen.findByText('Abandon action failed: 403 admin_routes_disabled');
+    const banner = await screen.findByText('Abandon action failed: 403 admin_routes_disabled');
 
     expect({
-      failureText: container.innerHTML.includes('Abandon action failed: 403 admin_routes_disabled'),
+      failureText: banner.textContent,
+      errorVariant: banner.closest('[class*="text-rose-300"]') !== null,
+      successVariant: banner.closest('[class*="text-emerald-300"]') !== null,
       requests: fetchMock.mock.calls.length,
       localStorageLength: localStorage.length,
       setItemCalls: setItem.mock.calls.length,
-    }).toStrictEqual({ failureText: true, requests: 2, localStorageLength: 0, setItemCalls: 0 });
+    }).toStrictEqual({
+      failureText: 'Abandon action failed: 403 admin_routes_disabled',
+      errorVariant: true,
+      successVariant: false,
+      requests: 2,
+      localStorageLength: 0,
+      setItemCalls: 0,
+    });
   });
 });
