@@ -58,3 +58,16 @@ a request without authentication.
 The variables `MCP_QUANT_URL` (removed with `src/app/api/quant/`) and `TREASURY_GATEWAY_URL`
 (removed with the direct treasury rewrite) are no longer read by web-admin. The environment
 contract rows for web-admin list neither.
+
+## Testing
+
+Tests run in the `node` environment by default (`vitest.config.ts`). A page test that needs a DOM is
+named `*.dom.test.tsx`, lives under `test/pages/` and starts with the docblock line
+`// @vitest-environment jsdom`; it renders the real page with `@testing-library/react`, stubs `fetch`
+with the helpers of `test/support/adminBackend.ts` and uses the real jsdom `localStorage`
+(`stubBrowserStorage` is for node tests only). Every page test asserts the four states: loading (a
+request that is never answered shows the `Skeleton`), error (`403 admin_routes_disabled` in an alert
+with no empty state and no data), empty (the backend's empty list shows the `InstitutionalEmptyState`
+and no alert) and data (a value of the wire fixture is rendered and no alert), plus one rejected case
+per mutating control (the failure text, no success text, no browser storage write).
+`test/pagesInitialState.test.tsx` remains the first-frame guard that needs no DOM.

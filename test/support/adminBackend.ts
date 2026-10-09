@@ -88,3 +88,76 @@ export function expectNoDataStorageAccess(ops: StorageOperations): void {
   expect(ops.removals).toEqual([]);
   expect(ops.reads.filter((key) => key !== STORAGE_KEYS.ADMIN_ACCESS_TOKEN)).toEqual([]);
 }
+
+/** A grpc-gateway answer of a stubbed route. */
+export interface StubbedAnswer {
+  readonly status: number;
+  readonly body: unknown;
+}
+
+/** The answer of the admin backend while its routes are disabled: `403 {"code":7,"message":"admin_routes_disabled"}`. */
+export const ANSWER_ADMIN_ROUTES_DISABLED: StubbedAnswer = {
+  status: 403,
+  body: { code: GRPC_CODE_PERMISSION_DENIED, message: REASON_ADMIN_ROUTES_DISABLED },
+};
+
+/** Stubs `fetch` with a request that is never answered (the loading state). */
+export function stubBackendNeverAnswers() {
+  const fetchMock = vi.fn(() => new Promise<Response>(() => undefined));
+  vi.stubGlobal('fetch', fetchMock);
+  return fetchMock;
+}
+
+/**
+ * Stubs `fetch` with one answer per route. A route key is the method and the URL exactly as the page
+ * requests it, for example `'GET /v1/admin/stats'`; a route that is not listed answers 404
+ * `route_not_found`, so a page that calls an unexpected URL fails loudly.
+ */
+export function stubBackendRoutes(routes: Record<string, StubbedAnswer>) {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const answer = routes[`${init?.method ?? 'GET'} ${String(input)}`] ?? {
+      status: 404,
+      body: { code: GRPC_CODE_NOT_FOUND, message: REASON_NOT_FOUND },
+    };
+    return new Response(JSON.stringify(answer.body), {
+      status: answer.status,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  return fetchMock;
+}
+
+/**
+ * `venom.billing.v1.PaymentGateway` and `PaymentGatewayConfig` as grpc-gateway writes them
+ * (proto-definitions/venom/billing/v1/billing.proto): `type` FIAT_CARD, `environment` "test",
+ * `status` ACTIVE, every proto field populated.
+ */
+export const universalGatewayWire = {
+  name: 'stripe',
+  displayName: 'Stripe',
+  type: 'FIAT_CARD',
+  isEnabled: true,
+  environment: 'test',
+  publicKey: 'pk_test_some',
+};
+
+export const universalGatewayConfigWire = {
+  id: 'gateway-config-1',
+  gatewayName: 'stripe',
+  displayName: 'Stripe',
+  type: 'FIAT_CARD',
+  isEnabled: true,
+  environment: 'test',
+  version: 3,
+  status: 'ACTIVE',
+  publicKey: 'pk_test_some',
+  maskedSecretKey: 'sk_test_***1234',
+  maskedWebhookSecret: 'whsec_***5678',
+  isSealed: true,
+  planPriceMappings: { STARTER: 'price_starter', PRO: 'price_pro', ENTERPRISE: 'price_enterprise' },
+  webhookUrl: '/v1/billing/webhooks/stripe',
+  metadata: {},
+  updatedAt: '2026-10-01T00:00:00Z',
+  retiredAt: '',
+};
